@@ -1,3 +1,8 @@
+> **phosphor-menu**: Phosphor's fork of the MiSTer menu core, part of [Phosphor](https://github.com/f3bandit/phosphor_os)
+> (unofficial custom firmware for the SuperStation One, built on mainline MiSTer). It adds the front ports
+> (PlayStation controllers and memory cards over SNAC), off until Phosphor asks: see [PHOSPHOR.md](PHOSPHOR.md).
+> Everything else below is the menu core's own README. GPL; not made or supported by MiSTer-devel.
+
 # Startup core for MiSTer
 
 * **ESC** - Back/Options

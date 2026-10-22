@@ -5,8 +5,9 @@ with one addition for Phosphor OS on the SuperStation One: Main can read PlaySta
 and memory cards on the front ports (SNAC) while the menu core is loaded, so Phosphor's
 Controllers and Memory Cards screens work without loading another core.
 
-The front ports stay off until Main ([phosphor-main](https://github.com/f3bandit/phosphor-main))
-turns them on. Until then the user port works exactly as in the stock menu core (MT32-pi, MIDI).
+Phosphor's Main ([phosphor-main](https://github.com/f3bandit/phosphor-main)) loads this core wherever it
+would load `menu.rbf` when it's installed (`/media/fat/phosphor/cores/menu_phosphor.rbf`); `menu.rbf`
+itself is never replaced. The front ports stay off until Main turns them on. Until then the user port works exactly as in the stock menu core (MT32-pi, MIDI).
 While they are on, MT32-pi audio and MIDI are off.
 
 ## What's added
