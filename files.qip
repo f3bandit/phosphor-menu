@@ -1,3 +1,6 @@
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/phosphor/sio_byte.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/phosphor/card_sector.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/phosphor/phosphor_ext.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/sdram.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/ddram.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/console_out.sv
