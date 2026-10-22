@@ -65,6 +65,7 @@ localparam CONF_STR = {
 
 wire forced_scandoubler;
 wire [31:0] status;
+wire [35:0] EXT_BUS;
 
 hps_io #(.CONF_STR(CONF_STR)) hps_io
 (
@@ -72,7 +73,32 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 	.HPS_BUS(HPS_BUS),
 	.forced_scandoubler(forced_scandoubler),
 	.status(status),
-	.status_menumask(cfg)
+	.status_menumask(cfg),
+	.EXT_BUS(EXT_BUS)
+);
+
+/////////////////////   PHOSPHOR   ///////////////////
+// The SuperStation One's front ports (PlayStation controllers and memory cards over SNAC) for
+// phosphor-main. Off until Main turns them on; the user port then stops being MT32-pi / MIDI.
+
+wire        ph_on, ph_sel1_n, ph_sel2_n, ph_clk, ph_cmd;
+
+phosphor_ext phosphor_ext
+(
+	.clk(clk_sys),
+	.reset(RESET),
+	.io_strobe(EXT_BUS[33]),
+	.io_enable(EXT_BUS[34]),
+	.io_din(EXT_BUS[31:16]),
+	.io_dout(EXT_BUS[15:0]),
+	.dout_en(EXT_BUS[32]),
+	.ports_on(ph_on),
+	.sio_sel1_n(ph_sel1_n),
+	.sio_sel2_n(ph_sel2_n),
+	.sio_clk(ph_clk),
+	.sio_cmd(ph_cmd),
+	.sio_dat(USER_IN[4]),
+	.sio_ack(USER_IN[3])
 );
 
 ////////////////////   CLOCKS   ///////////////////
@@ -259,14 +285,13 @@ assign DDRAM_BE       = fb_own ? 8'hFF    : clr_be;
 reg [15:0] mt32_i2s_r, mt32_i2s_l;
 wire midi_rx;
 
-assign AUDIO_L = mt32_i2s_l;
-assign AUDIO_R = mt32_i2s_r;
+assign AUDIO_L = ph_on ? 16'd0 : mt32_i2s_l;
+assign AUDIO_R = ph_on ? 16'd0 : mt32_i2s_r;
 assign AUDIO_S = 1;
 
-assign USER_OUT[0]   = 1;
-assign USER_OUT[1]   = UART_RXD;
-assign USER_OUT[6:2] = '1;
-assign UART_TXD      = midi_rx;
+// front ports (Phosphor): [1] select port 1, [0] select port 2, [2] CMD, [5] CLK; DAT on [4], ACK on [3]
+assign USER_OUT      = ph_on ? {1'b1, ph_clk, 2'b11, ph_cmd, ph_sel1_n, ph_sel2_n} : {5'b11111, UART_RXD, 1'b1};
+assign UART_TXD      = ph_on ? 1'b1 : midi_rx;
 
 
 //

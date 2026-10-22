@@ -1,0 +1,60 @@
+# Simulates the Phosphor extension and builds the menu core with Quartus 17.0.2 Lite (the image
+# MiSTer's own nightly builds use). The .rbf is kept as a build artifact; publishing a release on
+# GitHub builds it and attaches it to that release.
+name: Phosphor menu core
+
+on:
+  push:
+    branches: [phosphor]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  simulate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Simulate the front ports against modelled controllers and a card
+        run: |
+          sudo apt-get install -y iverilog >/dev/null
+          sh sim/run.sh | tee sim.log
+          grep -q "ALL PASSED" sim.log
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile with Quartus
+        run: |
+          docker run --rm -v "$PWD":/project -w /project theypsilon/quartus-lite-c5:17.0.2.docker0 \
+            /opt/intelFPGA_lite/quartus/bin/quartus_sh --flow compile menu.qpf
+          sudo chown -R "$(id -u):$(id -g)" .
+          name="menu_phosphor_$(date -u +%Y%m%d).rbf"
+          cp output_files/menu.rbf "$name"
+          echo "RBF=$name" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: menu_phosphor
+          path: |
+            ${{ env.RBF }}
+            output_files/*.rpt
+            output_files/*.summary
+
+  release:
+    if: github.event_name == 'release'
+    needs: [simulate, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: menu_phosphor
+      - name: Attach the core to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" menu_phosphor_*.rbf --repo "${{ github.repository }}" --clobber
