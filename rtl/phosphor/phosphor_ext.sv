@@ -9,8 +9,9 @@
 // One's front ports (SNAC) while the menu core is loaded. The ports stay off until Main turns
 // them on: until then the user port works as in the stock menu core (MT32-pi, MIDI).
 //
-// Commands on hps_io's EXT_BUS (16-bit words; the first word is the command; the reply to a word
-// is read with the next one, so a reply starts at word 1):
+// Commands on hps_io's EXT_BUS (16-bit words; the first word is the command). Main reads the bus
+// after each word's strobe, so each word returns the answer set at its own strobe: the command word
+// returns the first reply word below, the k-th word after it the next (as with hps_io's own commands):
 //   80 PH_ID           reply: 5048 ('PH'), version, mode
 //   81 PH_MODE         write: mode (bit 0: front ports on).                  reply: 5048, old mode
 //   82 PH_PADS         reply: mode, then per port (1, 2) four words:
