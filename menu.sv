@@ -490,10 +490,21 @@ always @(posedge CLK_VIDEO) sync <= {~(HBlank | VBlank), HSync, VSync};
 assign VGA_DE  = sync[2];
 assign VGA_HS  = sync[1];
 assign VGA_VS  = sync[0];
-// Phosphor: black instead of the static until Main asks for it (PH_LOOK)
-wire [7:0] bg_v = ph_static ? comp_v : 8'd0;
-assign VGA_R   = fb_active ? fb_rgb[23:16] : bg_v;
-assign VGA_G   = fb_active ? fb_rgb[15:8]  : bg_v;
-assign VGA_B   = fb_active ? fb_rgb[7:0]   : bg_v;
+// Phosphor: the test card behind everything, in place of MiSTer's static (and of black): it shows
+// between cores, after a script, and behind MiSTer's own menu. (PH_LOOK is still answered; the
+// static is no longer drawn.)
+wire [23:0] tc_rgb;
+testcard testcard
+(
+	.clk(CLK_VIDEO),
+	.hc(hc),
+	.vc(vc),
+	.pal(PAL),
+	.dbl(forced_scandoubler),
+	.rgb(tc_rgb)
+);
+assign VGA_R   = fb_active ? fb_rgb[23:16] : tc_rgb[23:16];
+assign VGA_G   = fb_active ? fb_rgb[15:8]  : tc_rgb[15:8];
+assign VGA_B   = fb_active ? fb_rgb[7:0]   : tc_rgb[7:0];
 
 endmodule

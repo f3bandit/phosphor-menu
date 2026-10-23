@@ -19,6 +19,14 @@ While they are on, MT32-pi audio and MIDI are off.
 - `menu.sv`: the extension on `EXT_BUS` and the user port switched between the stock use and the
   front ports.
 
+## The test card
+
+The background (between cores, after a script, behind MiSTer's own menu) is Phosphor's test card
+instead of MiSTer's static: `rtl/testcard.sv`, drawn from the beam position with no memory beyond
+two small tables (`rtl/testcard_x.hex`, `rtl/testcard_y.hex`, made by `rtl/testcard_rom.py`).
+To see it: `iverilog -g2012 -o sim/tb_testcard.vvp sim/tb_testcard.sv rtl/testcard.sv && vvp -n
+sim/tb_testcard.vvp` writes a frame for NTSC, the scandoubler and PAL to `sim/tc_*.ppm`.
+
 ## Commands
 
 16-bit words; the first word is the command. The reply to a word is read with the next one.
