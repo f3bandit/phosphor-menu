@@ -12,6 +12,7 @@ module tb;
 	reg        io_strobe = 0, io_enable = 0;
 	reg [15:0] io_din = 0;
 	wire [15:0] io_dout;
+	wire        show_static;
 	wire       dout_en, ports_on;
 	wire       sel1_n, sel2_n, sclk, scmd;
 	wire       dat1, ack1, dat2, ack2;
@@ -20,7 +21,7 @@ module tb;
 	(
 		.clk(clk), .reset(reset),
 		.io_strobe(io_strobe), .io_enable(io_enable), .io_din(io_din), .io_dout(io_dout), .dout_en(dout_en),
-		.ports_on(ports_on),
+		.ports_on(ports_on), .show_static(show_static),
 		.sio_sel1_n(sel1_n), .sio_sel2_n(sel2_n), .sio_clk(sclk), .sio_cmd(scmd),
 		.sio_dat(dat1 & dat2), .sio_ack(ack1 & ack2)
 	);
@@ -90,6 +91,11 @@ module tb;
 		begin_cmd(16'h29); w(0, r); end_cmd;
 		check("other command left to hps_io", r, 16'h0000);
 
+		check("black behind the menu at power-up", show_static, 0);
+		begin_cmd(16'h86); w(16'h0001, r); end_cmd;
+		check("PH_LOOK: static on", show_static, 1);
+		begin_cmd(16'h86); w(16'h0000, r); end_cmd;
+		check("PH_LOOK: static off", show_static, 0);
 		begin_cmd(16'h81); check("PH_MODE answers", r, 16'h5048); w(16'h0001, r); end_cmd;
 		check("PH_MODE: the old mode", r, 16'h0000);
 		check("ports on", ports_on, 1);

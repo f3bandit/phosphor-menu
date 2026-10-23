@@ -21,6 +21,9 @@
 //                        the operation starts after the sector (read) or the last data word (write)
 //   84 PH_CARD_STATUS  reply: {busy, done, 12'0, result}, then 64 data words (after a read)
 //                        result: 0 OK, 1 no card, 2 bad reply / refused, 3 sector out of range
+//   86 PH_LOOK         write: bit 0 = show MiSTer's moving static behind the menu (default off: black, so the
+//                        SS1 stays black from power-on until Phosphor is on screen; Main turns it on while
+//                        MiSTer's own menu has the screen)
 //   85 PH_PAD_CMD      write: {7'0, port 2, 6'0, pcmd}: 1 config mode, 2 analog on, 3 leave config
 //                        (1, 2, 3 in turn switch a DualShock to analog)
 // While a card operation or controller command is waiting or on the bus the controllers aren't
@@ -46,6 +49,7 @@ module phosphor_ext
 	output reg        dout_en,    // EXT_BUS[32]: this module answers the command
 
 	output            ports_on,   // the user port belongs to the front ports
+	output reg        show_static,       // PH_LOOK bit 0 (0 at power-up)
 
 	output            sio_sel1_n,
 	output            sio_sel2_n,
@@ -56,10 +60,11 @@ module phosphor_ext
 );
 
 localparam VERSION = 16'd1;
-localparam PH_ID = 8'h80, PH_MODE = 8'h81, PH_PADS = 8'h82, PH_CARD = 8'h83, PH_CARD_STATUS = 8'h84, PH_PAD_CMD = 8'h85;
+localparam PH_ID = 8'h80, PH_MODE = 8'h81, PH_PADS = 8'h82, PH_CARD = 8'h83, PH_CARD_STATUS = 8'h84, PH_PAD_CMD = 8'h85, PH_LOOK = 8'h86;
 localparam R_OK = 2'd0;
 
 reg [15:0] mode;
+initial show_static = 0;
 assign ports_on = mode[0];
 
 ///////////////////////////// the bus /////////////////////////////
@@ -262,7 +267,7 @@ always @(posedge clk) begin
 		if (!dout_en && wcnt == 0) begin
 			// the command word
 			cmd     <= io_din[7:0];
-			dout_en <= (io_din[15:8] == 0 && io_din[7:0] >= PH_ID && io_din[7:0] <= PH_PAD_CMD);
+			dout_en <= (io_din[15:8] == 0 && io_din[7:0] >= PH_ID && io_din[7:0] <= PH_LOOK);
 			case (io_din)
 				PH_ID, PH_MODE:  io_dout <= 16'h5048;
 				PH_PADS:         io_dout <= pads_word(1);
@@ -292,6 +297,7 @@ always @(posedge clk) begin
 				io_dout <= h_q;            // word wcnt - 1 of the buffer
 				h_rd    <= 6'(wcnt);
 			end
+			PH_LOOK: if (wcnt == 1) show_static <= io_din[0];
 			PH_PAD_CMD: if (wcnt == 1 && !pcmd_req) begin
 				pcmd_port <= io_din[8];
 				pcmd_cmd  <= io_din[1:0];
