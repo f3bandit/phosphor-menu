@@ -490,9 +490,9 @@ always @(posedge CLK_VIDEO) sync <= {~(HBlank | VBlank), HSync, VSync};
 assign VGA_DE  = sync[2];
 assign VGA_HS  = sync[1];
 assign VGA_VS  = sync[0];
-// Phosphor: the loading screen behind everything, in place of MiSTer's static (and of black): it
-// shows between cores, after a script, and behind MiSTer's own menu. (PH_LOOK is still answered;
-// the static is no longer drawn.)
+// Phosphor: the loading screen while Phosphor has (or is about to have) the screen: from power-on,
+// between cores, after a script. Behind MiSTer's own menu (Main sets PH_LOOK then) MiSTer's own
+// background again: its static, under any wallpaper Main draws on top.
 wire [23:0] tc_rgb;
 loadscreen loadscreen
 (
@@ -503,8 +503,8 @@ loadscreen loadscreen
 	.dbl(forced_scandoubler),
 	.rgb(tc_rgb)
 );
-assign VGA_R   = fb_active ? fb_rgb[23:16] : tc_rgb[23:16];
-assign VGA_G   = fb_active ? fb_rgb[15:8]  : tc_rgb[15:8];
-assign VGA_B   = fb_active ? fb_rgb[7:0]   : tc_rgb[7:0];
+assign VGA_R   = fb_active ? fb_rgb[23:16] : ph_static ? comp_v : tc_rgb[23:16];
+assign VGA_G   = fb_active ? fb_rgb[15:8]  : ph_static ? comp_v : tc_rgb[15:8];
+assign VGA_B   = fb_active ? fb_rgb[7:0]   : ph_static ? comp_v : tc_rgb[7:0];
 
 endmodule
