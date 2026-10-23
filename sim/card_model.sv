@@ -14,6 +14,7 @@ module card_model
 	integer    flaky_count = 0;
 	integer    dead_sector = -1;    // always bad
 	integer    ack_delay = 150;     // ns after the byte
+	integer    late_ack = 0;        // ns: a Sony card ACKs the 7th byte of a sector command ~1.7 ms late
 
 	integer    idx;
 	reg  [7:0] in_sh, out_sh, nxt;
@@ -126,7 +127,8 @@ module card_model
 			out_sh = reply(idx);
 			idx = idx + 1;
 			if (idx < (pmode ? pad_len : wmode ? 138 : 140)) begin
-				#(ack_delay) ack_n = 0;
+				if (!pmode && idx == 7 && late_ack) #(late_ack) ack_n = 0;
+				else #(ack_delay) ack_n = 0;
 				#200 ack_n = 1;
 			end
 		end

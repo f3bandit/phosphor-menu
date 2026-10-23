@@ -121,6 +121,19 @@ module tb;
 			if (data[i] !== {p1.mem[5*128 + 2*i + 1], p1.mem[5*128 + 2*i]}) n = n + 1;
 		check("card read: data", n, 0);
 
+		// a Sony card: the 7th byte's ACK comes ~1.7 ms late; the read still works
+		p1.late_ack = 1_700_000;
+		begin_cmd(16'h83); w(16'h0000, r); w(16'd9, r); end_cmd;
+		n = 0;
+		do begin #(500_000); begin_cmd(16'h84); st = r; end_cmd; n = n + 1; end while (st[15] && n < 100);
+		check("late-ACK card read: done, OK", st, 16'h4000);
+		begin_cmd(16'h84); st = r; for (i = 0; i < 64; i = i + 1) w(0, data[i]); end_cmd;
+		n = 0;
+		for (i = 0; i < 64; i = i + 1)
+			if (data[i] !== {p1.mem[9*128 + 2*i + 1], p1.mem[9*128 + 2*i]}) n = n + 1;
+		check("late-ACK card read: data", n, 0);
+		p1.late_ack = 0;
+
 		// write sector 7, read it back from the model
 		begin_cmd(16'h83); w(16'h0001, r); w(16'd7, r);
 		for (i = 0; i < 64; i = i + 1) w(16'hA500 + i * 3, r);
