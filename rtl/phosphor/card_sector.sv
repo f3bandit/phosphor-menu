@@ -31,7 +31,9 @@ module card_sector
 	input             reset,
 
 	input      [15:0] half_period,
-	input      [15:0] ack_timeout,
+	input      [19:0] ack_timeout,       // controllers
+	input      [19:0] card_ack_timeout,  // memory cards: a Sony card ACKs some bytes very late (~1.7 ms;
+	                                     // the PSX core waits up to ~1.8 ms for it)
 	input      [15:0] sel_delay,    // clk cycles between select and the first bit
 
 	input             start,
@@ -65,6 +67,7 @@ module card_sector
 localparam MODE_STORE = 0, MODE_COMPARE = 1, MODE_PROBE = 2, MODE_WRITE = 3;
 localparam R_OK = 0, R_NOCARD = 1, R_BAD = 2, R_RANGE = 3;
 
+reg        pd;       // talking to a controller
 reg        b_start, b_last;
 reg  [7:0] b_tx;
 wire [7:0] b_rx;
@@ -73,7 +76,7 @@ wire       b_done, b_ack;
 sio_byte sio_byte
 (
 	.clk(clk), .reset(reset),
-	.half_period(half_period), .ack_timeout(ack_timeout),
+	.half_period(half_period), .ack_timeout(pd ? ack_timeout : card_ack_timeout),
 	.start(b_start), .last(b_last), .tx(b_tx), .rx(b_rx), .done(b_done), .ack_seen(b_ack),
 	.sio_clk(sio_clk), .sio_cmd(sio_cmd), .sio_dat(sio_dat), .sio_ack(sio_ack)
 );
@@ -93,7 +96,6 @@ wire [7:0] lsb = sec[7:0];
 wire [7:0] didx = idx - 8'd10;   // read: data comes back during bytes 10..137
 wire [7:0] widx = idx - 8'd6;    // write: data goes out in bytes 6..133
 wire       wr   = (md == MODE_WRITE);
-reg        pd;       // talking to a controller
 reg  [1:0] pc;       // which command
 reg  [7:0] pad_last; // its last byte: 2 + 2 x the halfwords its ID announces
 wire [7:0] last_idx = pd ? pad_last : wr ? 8'd137 : 8'd139;
