@@ -19,13 +19,15 @@ While they are on, MT32-pi audio and MIDI are off.
 - `menu.sv`: the extension on `EXT_BUS` and the user port switched between the stock use and the
   front ports.
 
-## The test card
+## The loading screen
 
-The background (between cores, after a script, behind MiSTer's own menu) is Phosphor's test card
-instead of MiSTer's static: `rtl/testcard.sv`, drawn from the beam position with no memory beyond
-two small tables (`rtl/testcard_x.hex`, `rtl/testcard_y.hex`, made by `rtl/testcard_rom.py`).
-To see it: `iverilog -g2012 -o sim/tb_testcard.vvp sim/tb_testcard.sv rtl/testcard.sv && vvp -n
-sim/tb_testcard.vvp` writes a frame for NTSC, the scandoubler and PAL to `sim/tc_*.ppm`.
+The background (between cores, after a script, behind MiSTer's own menu) is Phosphor's loading
+screen instead of MiSTer's static: the PHOSPHOR wordmark, a row of blocks with a scanner sweeping
+left to right through them, and NOW LOADING. `rtl/loadscreen.sv` draws it from the beam position
+with no memory beyond two small tables (`rtl/loadscreen_x.hex`, `rtl/loadscreen_y.hex`, made by
+`rtl/loadscreen_rom.py`). To see it: `iverilog -g2012 -o sim/tb_loadscreen.vvp sim/tb_loadscreen.sv
+rtl/loadscreen.sv && vvp -n sim/tb_loadscreen.vvp` writes a frame (`sim/ls_full.ppm`) and the
+scanner over 40 frames (`sim/ls_anim.ppm`).
 
 ## Commands
 
