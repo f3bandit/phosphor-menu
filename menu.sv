@@ -490,11 +490,11 @@ always @(posedge CLK_VIDEO) sync <= {~(HBlank | VBlank), HSync, VSync};
 assign VGA_DE  = sync[2];
 assign VGA_HS  = sync[1];
 assign VGA_VS  = sync[0];
-// Phosphor: the test card behind everything, in place of MiSTer's static (and of black): it shows
-// between cores, after a script, and behind MiSTer's own menu. (PH_LOOK is still answered; the
-// static is no longer drawn.)
+// Phosphor: the loading screen behind everything, in place of MiSTer's static (and of black): it
+// shows between cores, after a script, and behind MiSTer's own menu. (PH_LOOK is still answered;
+// the static is no longer drawn.)
 wire [23:0] tc_rgb;
-testcard testcard
+loadscreen loadscreen
 (
 	.clk(CLK_VIDEO),
 	.hc(hc),
