@@ -81,7 +81,7 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 // The SuperStation One's front ports (PlayStation controllers and memory cards over SNAC) for
 // phosphor-main. Off until Main turns them on; the user port then stops being MT32-pi / MIDI.
 
-wire        ph_on, ph_sel1_n, ph_sel2_n, ph_clk, ph_cmd;
+wire        ph_on, ph_sel1_n, ph_sel2_n, ph_clk, ph_cmd, ph_static;
 
 phosphor_ext phosphor_ext
 (
@@ -93,6 +93,7 @@ phosphor_ext phosphor_ext
 	.io_dout(EXT_BUS[15:0]),
 	.dout_en(EXT_BUS[32]),
 	.ports_on(ph_on),
+	.show_static(ph_static),
 	.sio_sel1_n(ph_sel1_n),
 	.sio_sel2_n(ph_sel2_n),
 	.sio_clk(ph_clk),
@@ -489,8 +490,10 @@ always @(posedge CLK_VIDEO) sync <= {~(HBlank | VBlank), HSync, VSync};
 assign VGA_DE  = sync[2];
 assign VGA_HS  = sync[1];
 assign VGA_VS  = sync[0];
-assign VGA_R   = fb_active ? fb_rgb[23:16] : comp_v;
-assign VGA_G   = fb_active ? fb_rgb[15:8]  : comp_v;
-assign VGA_B   = fb_active ? fb_rgb[7:0]   : comp_v;
+// Phosphor: black instead of the static until Main asks for it (PH_LOOK)
+wire [7:0] bg_v = ph_static ? comp_v : 8'd0;
+assign VGA_R   = fb_active ? fb_rgb[23:16] : bg_v;
+assign VGA_G   = fb_active ? fb_rgb[15:8]  : bg_v;
+assign VGA_B   = fb_active ? fb_rgb[7:0]   : bg_v;
 
 endmodule
