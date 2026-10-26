@@ -1,6 +1,7 @@
 // Testbench for phosphor_ext: Main's side of EXT_BUS (spi_w), and in the front ports a modelled
 // controller with a memory card (port 1) and a digital controller with no card (port 2).
 // Run: sh sim/run.sh
+// Copyright (C) 2026 f3bandit. GPL-3.0 like the rest of the menu core (see COPYING).
 `timescale 1ns/1ns
 
 module tb;

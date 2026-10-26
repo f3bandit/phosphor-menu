@@ -1,6 +1,7 @@
 // The loading screen: a full frame (sim/ls_full.ppm), then the scanner's band of lines over 40 frames
 // (sim/ls_anim.ppm, the frames one under another). Run from the repo root:
 // iverilog -g2012 -o sim/tb_loadscreen.vvp sim/tb_loadscreen.sv rtl/loadscreen.sv && vvp -n sim/tb_loadscreen.vvp
+// Copyright (C) 2026 f3bandit. GPL-3.0 like the rest of the menu core (see COPYING).
 `timescale 1ns/1ps
 module tb_loadscreen;
 	reg clk = 0;
