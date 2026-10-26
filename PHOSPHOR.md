@@ -52,3 +52,10 @@ card and a second, digital controller. GitHub Actions runs the simulation and bu
 with Quartus 17.0.2 Lite on every push to the `phosphor` branch.
 
 GPL-3.0 for the Phosphor files; the menu core itself is GPL-2.0-or-later.
+
+## Licence
+
+MiSTer's Menu core is free software under the GNU General Public License, version 2 or (at your
+option) any later version. Phosphor's additions (rtl/phosphor/, rtl/loadscreen*, the changes to
+menu.sv, sim/ and the build workflow) are Copyright (C) 2026 f3bandit under GPL-3.0 or later, so this
+core as a whole is distributed under the GNU General Public License version 3 (COPYING).

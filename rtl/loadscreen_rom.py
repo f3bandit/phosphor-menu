@@ -2,6 +2,7 @@
 # Makes the loading screen's lookup tables (rtl/loadscreen_x.hex, rtl/loadscreen_y.hex): what is at
 # each column and on each line, so the core does no division. Layout: 640 x 240 shown at 16:9 (see
 # loadscreen.sv). Run from anywhere: python3 rtl/loadscreen_rom.py
+# Copyright (C) 2026 f3bandit. GPL-3.0 like the rest of the menu core (see COPYING).
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))

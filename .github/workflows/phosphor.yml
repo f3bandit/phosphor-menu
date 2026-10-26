@@ -1,6 +1,7 @@
 # Simulates the Phosphor extension and builds the menu core with Quartus 17.0.2 Lite (the image
 # MiSTer's own nightly builds use). The .rbf is kept as a build artifact; publishing a release on
 # GitHub builds it and attaches it to that release.
+# Copyright (C) 2026 f3bandit. GPL-3.0 like the rest of the menu core (see COPYING).
 name: Phosphor menu core
 
 on:

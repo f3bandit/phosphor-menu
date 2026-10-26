@@ -1,4 +1,5 @@
 // PlayStation controller + memory card model, from the SS1 Controller Tester (GPL-3.0, f3bandit).
+// Copyright (C) 2026 f3bandit. GPL-3.0 like the rest of the menu core (see COPYING).
 `timescale 1ns/1ns
 module card_model
 (
