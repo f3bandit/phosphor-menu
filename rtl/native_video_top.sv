@@ -3,7 +3,8 @@
 
 // Native video wrapper: timing + RGBX8888 DDR reader
 // (Phosphor, 2026: from Retro-Remake's menu_ConsoleMode; adds vga_hcount, for Phosphor's loading
-//  screen and MiSTer's framebuffer terminal drawn on the same raster)
+//  screen and MiSTer's framebuffer terminal drawn on the same raster, and reader_enable / reader_idle,
+//  so the menu core can hand DDRAM to the reader and take it back between bursts)
 
 module native_video_top
 (
@@ -36,6 +37,8 @@ module native_video_top
 	output wire        vga_field,
 
 	input  wire        enable,
+	input  wire        reader_enable,   // (Phosphor: clk_sys; the reader owns DDRAM: see menu.sv)
+	output wire        reader_idle,     // (Phosphor: clk_sys; the reader has stopped, no request out)
 	output wire        active,
 
 	// 0=NTSC 240p, 1=480i 640, 2=PAL 288p, 3=480i 720, 4=576i PAL, 5=480p, 6=576p, 7=480p 640
@@ -109,7 +112,8 @@ native_video_reader reader
 	.r_out          (vga_r),
 	.g_out          (vga_g),
 	.b_out          (vga_b),
-	.enable_sys     (enable),
+	.enable_sys     (reader_enable),
+	.idle           (reader_idle),
 	.frame_ready    (frame_ready)
 );
 
