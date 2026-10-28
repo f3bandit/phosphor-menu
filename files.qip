@@ -7,4 +7,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/console_out.sv
 set_global_assignment -name VERILOG_FILE rtl/lfsr.v
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cos.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/loadscreen.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/native_video_reader.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/native_video_timing.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/native_video_top.sv
 set_global_assignment -name SYSTEMVERILOG_FILE menu.sv
