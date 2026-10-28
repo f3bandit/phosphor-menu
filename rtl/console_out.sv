@@ -80,7 +80,10 @@ reg [63:0] bdata;
 
 assign ddr_idle = ~fetch & ~|start & ~ddr_rd;
 
-wire [9:0] colsp1 = cols + 1'd1;
+// (cols is clk_vid's: into clk_sys first; it only changes with the framebuffer's size)
+reg  [9:0] cols_m, cols_s;
+always @(posedge clk_sys) begin cols_m <= cols; cols_s <= cols_m; end
+wire [9:0] colsp1 = cols_s + 1'd1;
 
 always @(posedge clk_sys) begin
 	reg [31:0] laddr;

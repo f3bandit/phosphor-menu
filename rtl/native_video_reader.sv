@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Native video DDR reader. Ctrl word = (frame<<2)|active_buffer, pixels RGBX8888
+// (Phosphor, 2026: turned off, it stops at the next point with no burst in flight and forgets the
+//  frame it had, so turned on again it starts from a new one; idle says when it has stopped)
 
 module native_video_reader
 (
@@ -31,6 +33,7 @@ module native_video_reader
 	output reg   [7:0] g_out,
 	output reg   [7:0] b_out,
 	input  wire        enable_sys,
+	output wire        idle,          // (Phosphor: stopped, nothing requested or on its way)
 	output wire        frame_ready
 );
 
@@ -388,8 +391,25 @@ always @(posedge ddr_clk) begin
 
 			default: state <= ST_IDLE;
 		endcase
+
+		// turned off: stop where nothing is in flight, and forget the frame (turned on again: a new one)
+		if(!enable_ddr && state != ST_WAIT_LINE && state != ST_WAIT_CTRL && !ddr_rd
+		   && (state != ST_IDLE || first_frame_loaded || frame_ready_reg)) begin
+			state               <= ST_IDLE;
+			ddr_rd              <= 1'b0;
+			first_frame_loaded  <= 1'b0;
+			frame_ready_reg     <= 1'b0;
+			preloading          <= 1'b0;
+			mode_reload_pending <= 1'b1;
+			cur_line            <= 10'd0;
+			burst_idx           <= 1'b0;
+			pair_pass           <= 1'b0;
+			addr_ok             <= 2'd0;
+			fifo_aclr_cnt       <= 4'd8;
+		end
 	end
 end
+assign idle = (state == ST_IDLE) && !ddr_rd && !enable_ddr;
 
 // pair line buffer: pass 0 stores line 2L+f, pass 1 reads it back for the blend
 always @(posedge ddr_clk) begin

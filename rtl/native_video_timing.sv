@@ -150,11 +150,13 @@ always @(posedge clk) begin
 
 		new_frame <= 1'b0;
 		new_line  <= 1'b0;
-		line_wrap = (hcount == H_TOTAL - 10'd1);
+		// (>=: a mode change to a shorter line or frame wraps at once, not after counting on to 1023;
+		//  Phosphor's change: the menu core switches modes with PAL, the scandoubler and CRT mode)
+		line_wrap = (hcount >= H_TOTAL - 10'd1);
 
 		if(line_wrap) begin
 			hcount <= 10'd0;
-			if(vcount == V_TOTAL - 10'd1) vcount <= 10'd0;
+			if(vcount >= V_TOTAL - 10'd1) vcount <= 10'd0;
 			else                          vcount <= vcount + 10'd1;
 		end
 		else begin
@@ -171,7 +173,7 @@ always @(posedge clk) begin
 
 		if(line_wrap) begin
 			if(vcount == V_ACTIVE - 10'd1) vblank <= 1'b1;
-			else if(vcount == V_TOTAL - 10'd1) vblank <= 1'b0;
+			else if(vcount >= V_TOTAL - 10'd1) vblank <= 1'b0;
 		end
 
 		if(vs_step) begin
@@ -192,7 +194,7 @@ always @(posedge clk) begin
 		next_vblank = vblank;
 		if(line_wrap) begin
 			if(vcount == V_ACTIVE - 10'd1) next_vblank = 1'b1;
-			else if(vcount == V_TOTAL - 10'd1) next_vblank = 1'b0;
+			else if(vcount >= V_TOTAL - 10'd1) next_vblank = 1'b0;
 		end
 
 		de <= ~next_hblank & ~next_vblank;

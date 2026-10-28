@@ -223,9 +223,13 @@ always @(posedge clk_sys) begin
 end
 
 reg         fb_own = 0;
-// Phosphor's CRT modes (status[9]): the native video reader owns DDRAM, nothing else touches it
+// Phosphor's CRT modes (status[9]): the native video reader owns DDRAM, nothing else touches it.
+// Ownership is handed over, never switched mid-burst: the reader gets it (nv_own) once the
+// framebuffer reader and the clear writer are idle, and gives it back once it has stopped (nv_idle)
 wire        native_sys = status[9];
-wire        ddr_pause = FB | fb_own | native_sys;
+reg         nv_own = 0;
+wire        nv_idle;
+wire        ddr_pause = FB | fb_own | native_sys | nv_own;
 wire [28:0] clr_addr, fb_addr;
 wire  [7:0] clr_burst, clr_be, fb_burst;
 wire        clr_rd, clr_we, fb_rd, fb_idle;
@@ -254,7 +258,7 @@ always @(posedge clk_sys) begin
 
 	if(~RESET & cfg[15] & ~ddr_pause) begin
 		cnt <= cnt + 1'b1;
-		we <= &cnt;
+		we <= &cnt & (addr[28:22] != 7'h68);     // (never the native buffers: 0x3A000000, 4 MB)
 		if(cnt == 8) addr <= addr + 1'd1;
 	end
 end
@@ -262,20 +266,23 @@ end
 always @(posedge clk_sys) begin
 	reg fb_req;
 
-	fb_req <= FB & ~native_sys;
+	fb_req <= FB & ~native_sys & ~nv_own;
 	if(fb_req & ~clr_we) fb_own <= 1;
 	else if(~fb_req & fb_idle) fb_own <= 0;
+
+	if(native_sys & ~nv_own & ~fb_own & ~fb_req & ~clr_we) nv_own <= 1;
+	else if(~native_sys & nv_own & nv_idle) nv_own <= 0;
 end
 
 wire [28:0] nv_addr;
 wire  [7:0] nv_burst, nv_be;
 wire        nv_rd, nv_we;
 wire [63:0] nv_din;
-assign DDRAM_ADDR     = native_sys ? nv_addr  : fb_own ? fb_addr  : clr_addr;
-assign DDRAM_BURSTCNT = native_sys ? nv_burst : fb_own ? fb_burst : clr_burst;
-assign DDRAM_RD       = native_sys ? nv_rd    : fb_own ? fb_rd    : clr_rd;
-assign DDRAM_WE       = native_sys ? 1'b0     : fb_own ? 1'b0     : clr_we;
-assign DDRAM_BE       = native_sys ? 8'hFF    : fb_own ? 8'hFF    : clr_be;
+assign DDRAM_ADDR     = nv_own ? nv_addr  : fb_own ? fb_addr  : clr_addr;
+assign DDRAM_BURSTCNT = nv_own ? nv_burst : fb_own ? fb_burst : clr_burst;
+assign DDRAM_RD       = nv_own ? nv_rd    : fb_own ? fb_rd    : clr_rd;
+assign DDRAM_WE       = nv_own ? 1'b0     : fb_own ? 1'b0     : clr_we;
+assign DDRAM_BE       = nv_own ? 8'hFF    : fb_own ? 8'hFF    : clr_be;
 
 ////////////////////////////  MT32pi  ////////////////////////////////// 
 
@@ -438,7 +445,7 @@ native_video_top native_video
 	.ddr_burstcnt   (nv_burst),
 	.ddr_addr       (nv_addr),
 	.ddr_dout       (DDRAM_DOUT),
-	.ddr_dout_ready (DDRAM_DOUT_READY),
+	.ddr_dout_ready (DDRAM_DOUT_READY & nv_own),    // (only its own beats)
 	.ddr_rd         (nv_rd),
 	.ddr_din        (nv_din),
 	.ddr_be         (nv_be),
@@ -457,6 +464,8 @@ native_video_top native_video
 	.vga_new_frame  (native_new_frame),
 	.vga_field      (native_field),
 	.enable         (native_fb_v),
+	.reader_enable  (nv_own & native_sys),        // (off when CRT mode goes: it stops, then gives DDRAM back)
+	.reader_idle    (nv_idle),
 	.active         (native_active),
 
 	.mode           (raster_mode),
@@ -464,13 +473,16 @@ native_video_top native_video
 	.v_offset       ($signed(native_fb_v ? native_voff : 6'd0))
 );
 
+// the terminal and the loading screen are 640 wide: centred on the 704 / 720-wide rasters
+wire [9:0] raster_xoff = (raster_mode == 3'd2) ? 10'd32 : (raster_mode >= 3'd3 && raster_mode <= 3'd6) ? 10'd40 : 10'd0;
+wire [9:0] hc640 = hc - raster_xoff;
 reg  [9:0] vvc;
 reg  [lfsr_n:0] rnd_reg;
 wire [lfsr_n:0] rnd;
 wire  [5:0] rnd_c = {rnd_reg[0],rnd_reg[1],rnd_reg[2],rnd_reg[2],rnd_reg[2],rnd_reg[2]};
 lfsr #(lfsr_n) random(rnd);
 always @(posedge CLK_VIDEO) begin
-	if(native_new_frame) vvc <= vvc + 10'd6;
+	if(native_new_frame & ce_timing) vvc <= vvc + 10'd6;   // (new_frame lasts a whole pixel: 2 clocks at 15 kHz)
 	if(ce_timing) rnd_reg <= rnd;
 end
 
@@ -492,7 +504,7 @@ console_out console_out
 	.ddr_rd(fb_rd),
 	.ddr_busy(DDRAM_BUSY),
 	.ddr_dout(DDRAM_DOUT),
-	.ddr_dout_ready(DDRAM_DOUT_READY),
+	.ddr_dout_ready(DDRAM_DOUT_READY & fb_own),
 	.ddr_idle(fb_idle),
 
 	.fb_fmt(LFB_FMT),
@@ -504,16 +516,28 @@ console_out console_out
 	.clk_vid(CLK_VIDEO),
 	.ce_pix(ce_pix),
 	.show(FB),
-	.hc(hc),
+	.hc(hc640),
 	.vc(vc),
 	.height(raster_pal ? (raster_dbl ? 10'd576 : 10'd288) : (raster_dbl ? 10'd480 : 10'd240)),
 	.rgb(fb_rgb),
 	.active(fb_active)
 );
 
-assign VGA_DE  = native_de;
-assign VGA_HS  = native_hs;
-assign VGA_VS  = native_vs;
+// the framebuffer terminal's picture comes 2 clocks after hc / vc (console_out's pipeline): the syncs
+// and the blanking go with it then; Phosphor's own frames come with the timing's own (the reader's)
+wire use_native = native_fb_v & native_active;
+reg  [1:0] de_d, hs_d, vs_d;
+always @(posedge CLK_VIDEO) begin
+	de_d <= {de_d[0], native_de};
+	hs_d <= {hs_d[0], native_hs};
+	vs_d <= {vs_d[0], native_vs};
+end
+reg  [1:0] ph_static_s;                              // (clk_sys's: into CLK_VIDEO)
+always @(posedge CLK_VIDEO) ph_static_s <= {ph_static_s[0], ph_static};
+wire       out_de = use_native ? native_de : de_d[1];
+assign VGA_DE  = out_de;
+assign VGA_HS  = use_native ? native_hs : hs_d[1];
+assign VGA_VS  = use_native ? native_vs : vs_d[1];
 // Phosphor: the loading screen while Phosphor has (or is about to have) the screen: from power-on,
 // between cores, after a script. Behind MiSTer's own menu (Main sets PH_LOOK then) MiSTer's own
 // background again: its static, under any wallpaper Main draws on top.
@@ -521,7 +545,7 @@ wire [23:0] tc_rgb;
 loadscreen loadscreen
 (
 	.clk(CLK_VIDEO),
-	.hc(hc),
+	.hc(hc640),
 	.vc(vc),
 	.pal(raster_pal),
 	.dbl(raster_dbl),
@@ -529,9 +553,8 @@ loadscreen loadscreen
 );
 // Phosphor's CRT mode with a frame ready: its frames; else the framebuffer terminal, MiSTer's static, the
 // loading screen (black outside the active area)
-wire use_native = native_fb_v & native_active;
-assign VGA_R   = use_native ? native_r : ~native_de ? 8'd0 : fb_active ? fb_rgb[23:16] : ph_static ? comp_v : tc_rgb[23:16];
-assign VGA_G   = use_native ? native_g : ~native_de ? 8'd0 : fb_active ? fb_rgb[15:8]  : ph_static ? comp_v : tc_rgb[15:8];
-assign VGA_B   = use_native ? native_b : ~native_de ? 8'd0 : fb_active ? fb_rgb[7:0]   : ph_static ? comp_v : tc_rgb[7:0];
+assign VGA_R   = use_native ? native_r : ~out_de ? 8'd0 : fb_active ? fb_rgb[23:16] : ph_static_s[1] ? comp_v : tc_rgb[23:16];
+assign VGA_G   = use_native ? native_g : ~out_de ? 8'd0 : fb_active ? fb_rgb[15:8]  : ph_static_s[1] ? comp_v : tc_rgb[15:8];
+assign VGA_B   = use_native ? native_b : ~out_de ? 8'd0 : fb_active ? fb_rgb[7:0]   : ph_static_s[1] ? comp_v : tc_rgb[7:0];
 
 endmodule
