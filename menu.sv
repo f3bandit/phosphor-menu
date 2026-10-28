@@ -416,10 +416,23 @@ always @(posedge CLK_VIDEO) begin
 	pal_m <= PAL;                   pal_v <= pal_m;
 	dbl_m <= forced_scandoubler;    dbl_v <= dbl_m;
 end
+// the mode and the centering are several bits each, synchronised one by one: a value counts once it has
+// stayed the same for 4 clocks (never half of an old one and half of a new one); the centering then
+// changes only at the start of a frame, never mid-line (a moved sync mid-line glitches the picture)
+reg [2:0] mode_st = 3'd0;
+reg [5:0] hoff_st = 6'd0, voff_st = 6'd0, hoff_f = 6'd0, voff_f = 6'd0;
+reg [2:0] st_cnt = 3'd0;
+reg [14:0] st_last = 15'd0;
+always @(posedge CLK_VIDEO) begin
+	st_last <= {native_mode, native_hoff, native_voff};
+	if({native_mode, native_hoff, native_voff} != st_last) st_cnt <= 3'd0;
+	else if(st_cnt != 3'd4) st_cnt <= st_cnt + 3'd1;
+	else {mode_st, hoff_st, voff_st} <= st_last;
+end
 // the menu core's usual rasters when Phosphor's CRT mode is off
-wire [2:0] raster_mode = native_fb_v ? native_mode : pal_v ? (dbl_v ? 3'd6 : 3'd2) : (dbl_v ? 3'd7 : 3'd0);
-wire       raster_dbl  = native_fb_v ? (native_mode >= 3'd5) : dbl_v;
-wire       raster_pal  = native_fb_v ? (native_mode == 3'd2 || native_mode == 3'd4 || native_mode == 3'd6) : pal_v;
+wire [2:0] raster_mode = native_fb_v ? mode_st : pal_v ? (dbl_v ? 3'd6 : 3'd2) : (dbl_v ? 3'd7 : 3'd0);
+wire       raster_dbl  = native_fb_v ? (mode_st >= 3'd5) : dbl_v;
+wire       raster_pal  = native_fb_v ? (mode_st == 3'd2 || mode_st == 3'd4 || mode_st == 3'd6) : pal_v;
 
 // a CLK_VIDEO/2 grid for the 15 kHz modes; 480p/576p every clock (the full 27 MHz)
 wire ce_full_rate = (raster_mode >= 3'd5);
@@ -469,9 +482,10 @@ native_video_top native_video
 	.active         (native_active),
 
 	.mode           (raster_mode),
-	.h_offset       ($signed(native_fb_v ? native_hoff : 6'd0)),
-	.v_offset       ($signed(native_fb_v ? native_voff : 6'd0))
+	.h_offset       ($signed(native_fb_v ? hoff_f : 6'd0)),
+	.v_offset       ($signed(native_fb_v ? voff_f : 6'd0))
 );
+always @(posedge CLK_VIDEO) if(native_new_frame & ce_timing) begin hoff_f <= hoff_st; voff_f <= voff_st; end
 
 // the terminal and the loading screen are 640 wide: centred on the 704 / 720-wide rasters
 wire [9:0] raster_xoff = (raster_mode == 3'd2) ? 10'd32 : (raster_mode >= 3'd3 && raster_mode <= 3'd6) ? 10'd40 : 10'd0;
