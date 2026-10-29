@@ -1,5 +1,6 @@
 // Phosphor extension for the MiSTer menu core (phosphor-menu, a fork of MiSTer-devel/Menu_MiSTer).
 // Copyright (C) 2026 f3bandit
+// The front ports for the controller test and the memory card manager: f3bandit's idea and design.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms of
 // the GNU General Public License as published by the Free Software Foundation, either version 3
