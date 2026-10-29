@@ -1,5 +1,6 @@
 // SS1 Controller Tester
 // Copyright (C) 2026 f3bandit
+// The memory card reader (from the SS1 Memory Card Tool): f3bandit's idea and design.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms of
 // the GNU General Public License as published by the Free Software Foundation, either version 3
