@@ -2,6 +2,12 @@
 > (unofficial custom firmware for the SuperStation One, built on mainline MiSTer). It adds the front ports
 > (PlayStation controllers and memory cards over SNAC), off until Phosphor asks: see [PHOSPHOR.md](PHOSPHOR.md).
 > Everything else below is the menu core's own README. GPL; not made or supported by MiSTer-devel.
+>
+> The menu core is the work of **Alexey Melnikov (Sorgelig)** and the
+> [MiSTer-devel contributors](https://github.com/MiSTer-devel/Menu_MiSTer/graphs/contributors); their commits are kept
+> in this repository's history. The front ports (from f3bandit's SS1 Controller Tester and SS1 Memory Card Tool
+> cores) and Phosphor's other changes: **f3bandit**. CRT modes: the native video path from Retro Remake's
+> [menu_ConsoleMode](https://github.com/Retro-Remake/menu_consolemode).
 
 # Startup core for MiSTer
 
