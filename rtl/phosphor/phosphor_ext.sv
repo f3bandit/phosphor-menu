@@ -35,6 +35,7 @@ module phosphor_ext
 	parameter ACK_TO  = 20000,   // 200 us (controllers)
 	parameter CARD_ACK_TO = 300000,  // 3 ms (memory cards: Sony cards ACK some bytes ~1.7 ms late)
 	parameter SEL_DLY = 2000,    // 20 us
+	parameter BYTE_GAP = 3000,   // 30 us between a memory card's bytes, as a PS1 leaves
 	parameter GAP     = 400000   // 4 ms between controller reads (each port every 8 ms)
 )
 (
@@ -96,7 +97,7 @@ reg  [7:0] cs_rdata;
 card_sector card_sector
 (
 	.clk(clk), .reset(reset | ~ports_on),
-	.half_period(16'(HALF)), .ack_timeout(20'(ACK_TO)), .card_ack_timeout(20'(CARD_ACK_TO)), .sel_delay(16'(SEL_DLY)),
+	.half_period(16'(HALF)), .ack_timeout(20'(ACK_TO)), .card_ack_timeout(20'(CARD_ACK_TO)), .sel_delay(16'(SEL_DLY)), .byte_gap(16'(BYTE_GAP)),
 	.start(cs_start), .pad(cs_pad), .pcmd(cs_pcmd), .sector(cs_sector), .mode(cs_mode),
 	.busy(cs_busy), .done(cs_done), .result(cs_result), .mismatch(),
 	.hdr0(), .hdr1(), .pad_id(cs_pid), .pad_btn(cs_pbtn), .pad_ana(cs_pana),
