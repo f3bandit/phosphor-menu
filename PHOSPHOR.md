@@ -59,6 +59,3 @@ MiSTer's Menu core is free software under the GNU General Public License, versio
 option) any later version. Phosphor's additions (rtl/phosphor/, rtl/loadscreen*, the changes to
 menu.sv, sim/ and the build workflow) are Copyright (C) 2026 f3bandit under GPL-3.0 or later, so this
 core as a whole is distributed under the GNU General Public License version 3 (COPYING).
-
-Retro Remake and Taki Udon may also use f3bandit's own code here (the front ports, the loading screen,
-sim/ and the changes to menu.sv) without the GPL's conditions: see LICENSE-RETRO-REMAKE.md.
