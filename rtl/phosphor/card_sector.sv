@@ -24,6 +24,12 @@
 //   3 leave config  01 43 00 00 5A 5A 5A 5A 5A
 // A DualShock (or a receiver acting as one) starts in digital mode, where the left stick works
 // as the D-pad and the sticks aren't sent; 1-2-3 switches it to analog.
+//
+// Raw frames (raw = 1, for Super MemCard and anything else Main wants to send): raw_len bytes from
+// the buffer (mem_addr 0..raw_len-1) go out in one select, each byte's reply replaces it in the
+// buffer, and the frame stops after the first byte the card doesn't ACK (the last byte isn't ACKed).
+// raw_count: bytes exchanged; raw_ack: clk cycles to wait for each ACK (a Super MemCard card ACKs a
+// request's last byte only once its SD card is done: milliseconds). Same timing as the sector reads.
 
 module card_sector
 (
@@ -38,6 +44,10 @@ module card_sector
 	input      [15:0] byte_gap,     // memory cards: clk cycles between a byte's ACK and the next byte (a PS1 leaves ~25-50 us)
 
 	input             start,
+	input             raw,          // with start: a raw frame (raw_len bytes from the buffer)
+	input       [7:0] raw_len,      // 1..255
+	input      [23:0] raw_ack,      // clk cycles to wait for each ACK
+	output reg  [7:0] raw_count,    // valid with done: bytes exchanged
 	input             pad,          // with start: talk to the controller instead (sector/mode unused)
 	input       [1:0] pcmd,         // controller: 0 read it, 1 enter config, 2 analog mode on, 3 leave config
 	input       [9:0] sector,
@@ -69,6 +79,8 @@ localparam MODE_STORE = 0, MODE_COMPARE = 1, MODE_PROBE = 2, MODE_WRITE = 3;
 localparam R_OK = 0, R_NOCARD = 1, R_BAD = 2, R_RANGE = 3;
 
 reg        pd;       // talking to a controller
+reg        rw;       // a raw frame
+reg  [7:0] rlen;
 reg        b_start, b_last;
 reg  [7:0] b_tx;
 wire [7:0] b_rx;
@@ -77,7 +89,7 @@ wire       b_done, b_ack;
 sio_byte sio_byte
 (
 	.clk(clk), .reset(reset),
-	.half_period(half_period), .ack_timeout(pd ? ack_timeout : card_ack_timeout),
+	.half_period(half_period), .ack_timeout(rw ? raw_ack : pd ? 24'(ack_timeout) : 24'(card_ack_timeout)),
 	.start(b_start), .last(b_last), .tx(b_tx), .rx(b_rx), .done(b_done), .ack_seen(b_ack),
 	.sio_clk(sio_clk), .sio_cmd(sio_cmd), .sio_dat(sio_dat), .sio_ack(sio_ack)
 );
@@ -99,7 +111,7 @@ wire [7:0] widx = idx - 8'd6;    // write: data goes out in bytes 6..133
 wire       wr   = (md == MODE_WRITE);
 reg  [1:0] pc;       // which command
 reg  [7:0] pad_last; // its last byte: 2 + 2 x the halfwords its ID announces
-wire [7:0] last_idx = pd ? pad_last : wr ? 8'd137 : 8'd139;
+wire [7:0] last_idx = rw ? rlen - 8'd1 : pd ? pad_last : wr ? 8'd137 : 8'd139;
 wire [3:0] pad_n = (b_rx[3:0] == 0) ? 4'd1 : b_rx[3:0];
 wire [7:0] pidx  = idx - 8'd3;
 
@@ -118,7 +130,9 @@ always @(posedge clk) begin
 			busy      <= 1;
 			sec       <= sector;
 			md        <= mode;
-			pd        <= pad;
+			pd        <= pad & ~raw;
+			rw        <= raw;
+			rlen      <= (raw_len == 0) ? 8'd1 : raw_len;
 			pc        <= pad ? pcmd : 2'd0;
 			pad_last  <= 8'd255;
 			sio_sel_n <= 0;
@@ -135,14 +149,15 @@ always @(posedge clk) begin
 
 		// the card buffer is read a couple of clocks ahead of the byte that needs it
 		S_BYTE: begin
-			mem_addr <= wr ? {sec, widx[6:0]} : {sec, didx[6:0]};
+			mem_addr <= rw ? {9'd0, idx} : wr ? {sec, widx[6:0]} : {sec, didx[6:0]};
 			state    <= S_PRE;
 		end
 		S_PRE:  state <= S_PRE2;
 		S_PRE2: state <= S_SEND;
 
 		S_SEND: begin
-			if (pd) begin
+			if (rw) b_tx <= mem_rdata;
+			else if (pd) begin
 				case (idx)
 					0:       b_tx <= 8'h01;
 					1:       b_tx <= (pc == 0) ? 8'h42 : (pc == 2) ? 8'h44 : 8'h43;
@@ -177,7 +192,21 @@ always @(posedge clk) begin
 			state   <= S_WAIT;
 		end
 
-		S_WAIT: if (b_done) begin
+		S_WAIT: if (b_done && rw) begin
+			// raw: the reply goes where the byte was; stop after a byte without an ACK
+			mem_addr  <= {9'd0, idx};
+			mem_wdata <= b_rx;
+			mem_we    <= 1;
+			raw_count <= idx + 1'd1;
+			if (idx == 0 && !b_ack) res <= R_NOCARD;
+			if (idx == last_idx || !b_ack) state <= S_END;
+			else begin
+				idx   <= idx + 1'd1;
+				cnt   <= byte_gap;
+				state <= S_GAP;
+			end
+		end
+		else if (b_done) begin
 			// check the reply
 			if (pd) begin
 				case (idx)

@@ -18,7 +18,7 @@ module sio_byte
 	input             reset,
 
 	input      [15:0] half_period,  // clk cycles per half bit
-	input      [19:0] ack_timeout,  // clk cycles to wait for ACK after the byte
+	input      [23:0] ack_timeout,  // clk cycles to wait for ACK after the byte (up to ~160 ms at 100 MHz)
 
 	input             start,        // pulse: send tx
 	input             last,         // last byte of a command: no ACK follows
@@ -38,7 +38,7 @@ localparam S_IDLE = 0, S_LOW = 1, S_HIGH = 2, S_ACK = 3, S_ACKHI = 4;
 reg  [2:0] state;
 reg  [2:0] bitn;
 reg  [7:0] sh_tx;
-reg [19:0] cnt;
+reg [23:0] cnt;
 
 always @(posedge clk) begin
 	done <= 0;
@@ -60,14 +60,14 @@ always @(posedge clk) begin
 			ack_seen <= 0;
 			sio_clk  <= 0;
 			sio_cmd  <= tx[0];
-			cnt      <= half_period;
+			cnt      <= 24'(half_period);
 			state    <= S_LOW;
 		end
 
 		S_LOW: if (cnt) cnt <= cnt - 1'd1; else begin
 			sio_clk <= 1;
 			rx      <= {sio_dat, rx[7:1]};
-			cnt     <= half_period;
+			cnt     <= 24'(half_period);
 			state   <= S_HIGH;
 		end
 
@@ -86,7 +86,7 @@ always @(posedge clk) begin
 				sh_tx   <= {1'b1, sh_tx[7:1]};
 				sio_cmd <= sh_tx[1];
 				sio_clk <= 0;
-				cnt     <= half_period;
+				cnt     <= 24'(half_period);
 				state   <= S_LOW;
 			end
 		end

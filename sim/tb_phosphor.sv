@@ -69,6 +69,26 @@ module tb;
 	reg [15:0] data[0:63];
 	integer i, n;
 
+	// raw frames (PH_RAW / PH_RAW_STATUS): the bytes out, then the bytes back in the same array
+	reg  [7:0] fr[0:255];
+	reg [15:0] rst;
+	reg [15:0] rw16;
+	task automatic raw_frame(input integer port, input integer len, input integer ack10us);
+		integer k, tries;
+		begin
+			begin_cmd(16'h87);
+			w({7'd0, port[0], len[7:0]}, r);
+			w(ack10us[15:0], r);
+			for (k = 0; k < len; k = k + 2) w({(k + 1 < len) ? fr[k + 1] : 8'h00, fr[k]}, r);
+			end_cmd;
+			tries = 0;
+			do begin #(200_000); begin_cmd(16'h88); rst = r; end_cmd; tries = tries + 1; end while (rst[15] && tries < 2000);
+			begin_cmd(16'h88); rst = r;
+			for (k = 0; k < len; k = k + 2) begin w(0, rw16); fr[k] = rw16[7:0]; if (k + 1 < len) fr[k + 1] = rw16[15:8]; end
+			end_cmd;
+		end
+	endtask
+
 	initial begin
 		// port 1: analog controller and a card; port 2: digital controller, no card
 		p1.present = 1; p1.pad_present = 1; p1.pad_analog = 1;
@@ -85,7 +105,7 @@ module tb;
 
 		begin_cmd(16'h80); id = r; w(0, ver); w(0, md); end_cmd;
 		check("PH_ID", id, 16'h5048);
-		check("version", ver, 16'd1);
+		check("version", ver, 16'd2);
 		check("mode off", md, 16'd0);
 
 		// a command it doesn't own: no answer from the extension
@@ -177,6 +197,55 @@ module tb;
 		begin_cmd(16'h82); pw[0] = r; for (i = 1; i < 9; i = i + 1) w(0, pw[i]); end_cmd;
 		check("pad 2 now analog", pw[5], 16'h0173);
 
+		// ---- raw frames ----
+		// a whole sector read as a raw frame: 81 52 00 00 MSB LSB, 134 x 00
+		for (i = 0; i < 140; i = i + 1) fr[i] = 8'h00;
+		fr[0] = 8'h81; fr[1] = 8'h52; fr[4] = 8'h00; fr[5] = 8'd11;
+		raw_frame(0, 140, 500);
+		check("raw: done", rst[15:14], 2'b01);
+		check("raw: 140 bytes exchanged", rst[7:0], 140);
+		check("raw: FLAG", fr[1], 8'h08);
+		check("raw: confirmed sector", {fr[8], fr[9]}, 16'd11);
+		n = 0;
+		for (i = 0; i < 128; i = i + 1) if (fr[10 + i] !== p1.mem[11*128 + i]) n = n + 1;
+		check("raw: the sector's data", n, 0);
+		check("raw: end byte 47", fr[139], 8'h47);
+
+		// Super MemCard's Hello to a Sony-style card: it doesn't ACK the command byte, so the frame stops
+		for (i = 0; i < 23; i = i + 1) fr[i] = 8'h00;
+		fr[0] = 8'h81; fr[1] = 8'h60; fr[2] = "S"; fr[3] = "M"; fr[4] = 8'd1; fr[5] = 8'd1;
+		raw_frame(0, 23, 10000);
+		check("raw Hello: Sony card stops at 2", rst[7:0], 2);
+		check("raw Hello: FLAG came back", fr[1], 8'h08);
+		n = p1.writes;
+
+		// nothing in port 2's card slot: no ACK on the first byte, count 0
+		for (i = 0; i < 10; i = i + 1) fr[i] = 8'h00;
+		fr[0] = 8'h81; fr[1] = 8'h52;
+		raw_frame(1, 10, 500);
+		check("raw: no card in port 2", rst[7:0], 0);
+
+		// a card that ACKs 50 ms late (a Super MemCard card writing its SD card): waits when told to...
+		for (i = 0; i < 140; i = i + 1) fr[i] = 8'h00;
+		fr[0] = 8'h81; fr[1] = 8'h52; fr[5] = 8'd12;
+		p1.late_ack = 50_000_000;
+		raw_frame(0, 140, 10000);    // up to 100 ms
+		check("raw: 50 ms late ACK waited for", rst[7:0], 140);
+		check("raw: late frame right", fr[139], 8'h47);
+		// ...and gives up when not
+		for (i = 0; i < 140; i = i + 1) fr[i] = 8'h00;
+		fr[0] = 8'h81; fr[1] = 8'h52; fr[5] = 8'd12;
+		raw_frame(0, 140, 300);      // 3 ms
+		check("raw: 3 ms wait stops at byte 7", rst[7:0], 7);
+		#(50_000_000);   // the model is still inside its 50 ms late ACK of the abandoned frame
+		p1.late_ack = 0;
+
+		// the controllers are still read after raw frames
+		#(4_000_000);
+		begin_cmd(16'h82); pw[0] = r; for (i = 1; i < 9; i = i + 1) w(0, pw[i]); end_cmd;
+		check("raw: pads still read after", pw[1][8], 1);
+		check("raw: nothing written to card", p1.writes, n);
+
 		// controller unplugged
 		p1.pad_present = 0; p1.present = 0;
 		#(4_000_000);
@@ -193,5 +262,5 @@ module tb;
 		$finish;
 	end
 
-	initial begin #(200_000_000); $display("TIMEOUT"); $finish; end
+	initial begin #(600_000_000); $display("TIMEOUT"); $finish; end
 endmodule

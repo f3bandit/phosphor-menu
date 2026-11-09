@@ -21,6 +21,12 @@
 //                        the operation starts after the sector (read) or the last data word (write)
 //   84 PH_CARD_STATUS  reply: {busy, done, 12'0, result}, then 64 data words (after a read)
 //                        result: 0 OK, 1 no card, 2 bad reply / refused, 3 sector out of range
+//   87 PH_RAW          write: {7'0, port 2, len (1..255)}, ack wait in 10 us units (0..16777: up to ~168 ms),
+//                        then the frame's bytes as (len + 1) / 2 words (byte 2n low, 2n+1 high); the frame
+//                        starts after the last data word: one select, the bytes out in turn, each reply byte
+//                        kept in its place, stopping after the first byte the card doesn't ACK
+//   88 PH_RAW_STATUS   reply: {busy, done, 6'0, count (bytes exchanged)}, then the reply bytes as words
+//                        (count 0 with done: nothing answered at all)
 //   86 PH_LOOK         write: bit 0 = show MiSTer's moving static behind the menu (default off: black, so the
 //                        SS1 stays black from power-on until Phosphor is on screen; Main turns it on while
 //                        MiSTer's own menu has the screen)
@@ -60,8 +66,9 @@ module phosphor_ext
 	input             sio_ack
 );
 
-localparam VERSION = 16'd1;
-localparam PH_ID = 8'h80, PH_MODE = 8'h81, PH_PADS = 8'h82, PH_CARD = 8'h83, PH_CARD_STATUS = 8'h84, PH_PAD_CMD = 8'h85, PH_LOOK = 8'h86;
+localparam VERSION = 16'd2;   // 2: PH_RAW, PH_RAW_STATUS
+localparam PH_ID = 8'h80, PH_MODE = 8'h81, PH_PADS = 8'h82, PH_CARD = 8'h83, PH_CARD_STATUS = 8'h84, PH_PAD_CMD = 8'h85, PH_LOOK = 8'h86,
+           PH_RAW = 8'h87, PH_RAW_STATUS = 8'h88;
 localparam R_OK = 2'd0;
 
 reg [15:0] mode;
@@ -81,7 +88,10 @@ always @(posedge clk) begin
 	else if (ack_s[5:1] == 5'b11111) ack_f <= 1;
 end
 
-reg        cs_start, cs_pad, cs_port;
+reg        cs_start, cs_pad, cs_port, cs_raw;
+reg  [7:0] cs_rlen;
+reg [23:0] cs_rack;
+wire [7:0] cs_rcount;
 reg  [1:0] cs_pcmd, cs_mode;
 reg  [9:0] cs_sector;
 wire       cs_done, cs_busy, cs_sel_n;
@@ -98,7 +108,7 @@ card_sector card_sector
 (
 	.clk(clk), .reset(reset | ~ports_on),
 	.half_period(16'(HALF)), .ack_timeout(20'(ACK_TO)), .card_ack_timeout(20'(CARD_ACK_TO)), .sel_delay(16'(SEL_DLY)), .byte_gap(16'(BYTE_GAP)),
-	.start(cs_start), .pad(cs_pad), .pcmd(cs_pcmd), .sector(cs_sector), .mode(cs_mode),
+	.start(cs_start), .raw(cs_raw), .raw_len(cs_rlen), .raw_ack(cs_rack), .raw_count(cs_rcount), .pad(cs_pad), .pcmd(cs_pcmd), .sector(cs_sector), .mode(cs_mode),
 	.busy(cs_busy), .done(cs_done), .result(cs_result), .mismatch(),
 	.hdr0(), .hdr1(), .pad_id(cs_pid), .pad_btn(cs_pbtn), .pad_ana(cs_pana),
 	.mem_addr(cs_addr), .mem_wdata(cs_wdata), .mem_we(cs_we), .mem_rdata(cs_rdata),
@@ -108,27 +118,30 @@ card_sector card_sector
 assign sio_sel1_n = (ports_on && !cs_port) ? cs_sel_n : 1'b1;
 assign sio_sel2_n = (ports_on &&  cs_port) ? cs_sel_n : 1'b1;
 
-///////////////////////////// the sector buffer /////////////////////////////
-// 128 bytes as 64 words: the card side works in bytes, Main in words
+///////////////////////////// the buffer /////////////////////////////
+// 256 bytes as 128 words (a sector uses the first 128 bytes, a raw frame up to 255): the card side
+// works in bytes, Main in words
 
-reg  [7:0] buf_lo[0:63];
-reg  [7:0] buf_hi[0:63];
+reg  [7:0] buf_lo[0:127];
+reg  [7:0] buf_hi[0:127];
 reg        h_we;
-reg  [5:0] h_addr;
+reg  [6:0] h_addr;
 reg [15:0] h_data;
-reg  [5:0] h_rd;
+reg  [6:0] h_rd;
 reg [15:0] h_q;
+// a sector op addresses {sector, byte}: only its byte 0..127 picks the buffer word; a raw frame 0..255
+wire [6:0] cs_word = cs_raw ? cs_addr[7:1] : {1'b0, cs_addr[6:1]};
 
 always @(posedge clk) begin
 	if (cs_we) begin
-		if (cs_addr[0]) buf_hi[cs_addr[6:1]] <= cs_wdata;
-		else            buf_lo[cs_addr[6:1]] <= cs_wdata;
+		if (cs_addr[0]) buf_hi[cs_word] <= cs_wdata;
+		else            buf_lo[cs_word] <= cs_wdata;
 	end
 	else if (h_we) begin
 		buf_lo[h_addr] <= h_data[7:0];
 		buf_hi[h_addr] <= h_data[15:8];
 	end
-	cs_rdata <= cs_addr[0] ? buf_hi[cs_addr[6:1]] : buf_lo[cs_addr[6:1]];
+	cs_rdata <= cs_addr[0] ? buf_hi[cs_word] : buf_lo[cs_word];
 	h_q      <= {buf_hi[h_rd], buf_lo[h_rd]};
 end
 
@@ -145,13 +158,16 @@ reg        card_busy, card_done;
 reg  [1:0] card_res;
 reg        pcmd_req, pcmd_port;
 reg  [1:0] pcmd_cmd;
+reg        raw_req, raw_port, raw_busy, raw_done;
+reg  [7:0] raw_len, raw_count;
+reg [23:0] raw_ack;
 
-reg  [1:0] st;           // 0 idle, 1 controller read, 2 card operation, 3 controller command
+reg  [2:0] st;           // 0 idle, 1 controller read, 2 card operation, 3 controller command, 4 raw frame
 reg [22:0] tmr;
 reg        pp;           // the port read next
 
 // from the command side
-reg        set_card, set_pcmd;
+reg        set_card, set_pcmd, set_raw;
 
 always @(posedge clk) begin
 	cs_start <= 0;
@@ -162,6 +178,11 @@ always @(posedge clk) begin
 		card_done <= 0;
 	end
 	if (set_pcmd) pcmd_req <= 1;
+	if (set_raw) begin
+		raw_req  <= 1;
+		raw_busy <= 1;
+		raw_done <= 0;
+	end
 
 	if (reset || !ports_on) begin
 		st        <= 0;
@@ -170,14 +191,28 @@ always @(posedge clk) begin
 		card_req  <= 0;
 		card_busy <= 0;
 		pcmd_req  <= 0;
+		raw_req   <= 0;
+		raw_busy  <= 0;
+		cs_raw    <= 0;
 		cs_port   <= 0;
 		pp        <= 0;
 	end
 	else case (st)
 		0: begin
 			if (tmr) tmr <= tmr - 1'd1;
-			if (card_req) begin
+			if (raw_req) begin
+				raw_req   <= 0;
+				cs_port   <= raw_port;
+				cs_pad    <= 0;
+				cs_raw    <= 1;
+				cs_rlen   <= raw_len;
+				cs_rack   <= raw_ack;
+				cs_start  <= 1;
+				st        <= 4;
+			end
+			else if (card_req) begin
 				card_req  <= 0;
+				cs_raw    <= 0;
 				cs_port   <= card_port;
 				cs_pad    <= 0;
 				cs_pcmd   <= 0;
@@ -188,6 +223,7 @@ always @(posedge clk) begin
 			end
 			else if (pcmd_req) begin
 				pcmd_req  <= 0;
+				cs_raw    <= 0;
 				cs_port   <= pcmd_port;
 				cs_pad    <= 1;
 				cs_pcmd   <= pcmd_cmd;
@@ -195,6 +231,7 @@ always @(posedge clk) begin
 				st        <= 3;
 			end
 			else if (!tmr) begin
+				cs_raw    <= 0;
 				cs_port   <= pp;
 				cs_pad    <= 1;
 				cs_pcmd   <= 0;
@@ -227,6 +264,16 @@ always @(posedge clk) begin
 			tmr <= 23'(SEL_DLY);
 			st  <= 0;
 		end
+
+		4: if (cs_done) begin
+			raw_count <= (cs_result == 2'd1) ? 8'd0 : cs_rcount;   // no ACK on the first byte: nothing there
+			raw_busy  <= 0;
+			raw_done  <= 1;
+			tmr       <= 23'(SEL_DLY);
+			st        <= 0;
+		end
+
+		default: st <= 0;
 	endcase
 end
 
@@ -248,12 +295,13 @@ function [15:0] pads_word(input [3:0] n);   // PH_PADS reply word n (1..9)
 endfunction
 
 reg  [7:0] cmd;
-reg  [6:0] wcnt;     // words after the command
+reg  [7:0] wcnt;     // words after the command (up to 130: a raw frame)
 
 always @(posedge clk) begin
 	h_we     <= 0;
 	set_card <= 0;
 	set_pcmd <= 0;
+	set_raw  <= 0;
 
 	if (reset) mode <= 0;
 
@@ -268,11 +316,12 @@ always @(posedge clk) begin
 		if (!dout_en && wcnt == 0) begin
 			// the command word
 			cmd     <= io_din[7:0];
-			dout_en <= (io_din[15:8] == 0 && io_din[7:0] >= PH_ID && io_din[7:0] <= PH_LOOK);
+			dout_en <= (io_din[15:8] == 0 && io_din[7:0] >= PH_ID && io_din[7:0] <= PH_RAW_STATUS);
 			case (io_din)
 				PH_ID, PH_MODE:  io_dout <= 16'h5048;
 				PH_PADS:         io_dout <= pads_word(1);
 				PH_CARD_STATUS:  io_dout <= {card_busy, card_done, 12'd0, card_res};
+				PH_RAW_STATUS:   io_dout <= {raw_busy, raw_done, 6'd0, raw_count};
 				default: ;
 			endcase
 			h_rd <= 0;
@@ -289,14 +338,28 @@ always @(posedge clk) begin
 				end
 				if (card_wr && wcnt >= 3 && wcnt <= 66) begin
 					h_we   <= 1;
-					h_addr <= 6'(wcnt - 7'd3);
+					h_addr <= 7'(wcnt - 8'd3);
 					h_data <= io_din;
 					if (wcnt == 66) set_card <= 1;
 				end
 			end
 			PH_CARD_STATUS: if (wcnt <= 64) begin
 				io_dout <= h_q;            // word wcnt - 1 of the buffer
-				h_rd    <= 6'(wcnt);
+				h_rd    <= 7'(wcnt);
+			end
+			PH_RAW: if (!raw_busy && !raw_req) begin
+				if (wcnt == 1) begin raw_port <= io_din[8]; raw_len <= (io_din[7:0] == 0) ? 8'd1 : io_din[7:0]; end
+				if (wcnt == 2) raw_ack <= (io_din > 16'd16777) ? 24'hFFFFFF : 24'(io_din * 24'd1000);
+				if (wcnt >= 3 && wcnt <= 8'd2 + 8'(({1'b0, raw_len} + 9'd1) >> 1)) begin
+					h_we   <= 1;
+					h_addr <= 7'(wcnt - 8'd3);
+					h_data <= io_din;
+					if (wcnt == 8'd2 + 8'(({1'b0, raw_len} + 9'd1) >> 1)) set_raw <= 1;
+				end
+			end
+			PH_RAW_STATUS: if (wcnt <= 128) begin
+				io_dout <= h_q;
+				h_rd    <= 7'(wcnt);
 			end
 			PH_LOOK: if (wcnt == 1) show_static <= io_din[0];
 			PH_PAD_CMD: if (wcnt == 1 && !pcmd_req) begin
