@@ -78,7 +78,7 @@ module tb;
 		begin
 			begin_cmd(16'h87);
 			w({7'd0, port[0], len[7:0]}, r);
-			w(ack10us[15:0], r);
+			w(16'((ack10us * 1000) / 1024), r);   // 10 us units -> 1024-clk units
 			for (k = 0; k < len; k = k + 2) w({(k + 1 < len) ? fr[k + 1] : 8'h00, fr[k]}, r);
 			end_cmd;
 			tries = 0;

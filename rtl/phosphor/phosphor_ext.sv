@@ -21,7 +21,8 @@
 //                        the operation starts after the sector (read) or the last data word (write)
 //   84 PH_CARD_STATUS  reply: {busy, done, 12'0, result}, then 64 data words (after a read)
 //                        result: 0 OK, 1 no card, 2 bad reply / refused, 3 sector out of range
-//   87 PH_RAW          write: {7'0, port 2, len (1..255)}, ack wait in 10 us units (0..16777: up to ~168 ms),
+//   87 PH_RAW          write: {7'0, port 2, len (1..255)}, ack wait in units of 1024 clk (10.24 us at 100 MHz;
+//                        bits 13:0, up to ~168 ms),
 //                        then the frame's bytes as (len + 1) / 2 words (byte 2n low, 2n+1 high); the frame
 //                        starts after the last data word: one select, the bytes out in turn, each reply byte
 //                        kept in its place, stopping after the first byte the card doesn't ACK
@@ -349,7 +350,7 @@ always @(posedge clk) begin
 			end
 			PH_RAW: if (!raw_busy && !raw_req) begin
 				if (wcnt == 1) begin raw_port <= io_din[8]; raw_len <= (io_din[7:0] == 0) ? 8'd1 : io_din[7:0]; end
-				if (wcnt == 2) raw_ack <= (io_din > 16'd16777) ? 24'hFFFFFF : 24'(io_din * 24'd1000);
+				if (wcnt == 2) raw_ack <= {io_din[13:0], 10'd0};   // units of 1024 clk (no multiplier)
 				if (wcnt >= 3 && wcnt <= 8'd2 + 8'(({1'b0, raw_len} + 9'd1) >> 1)) begin
 					h_we   <= 1;
 					h_addr <= 7'(wcnt - 8'd3);
