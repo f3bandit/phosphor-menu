@@ -41,16 +41,21 @@
 
 module phosphor_ext
 #(
+	// timings in clk cycles at 100 MHz; at another clock they're scaled by clk_u64 (below)
 	parameter HALF    = 199,     // clk cycles per half bit: 250 kHz at 100 MHz
 	parameter ACK_TO  = 20000,   // 200 us (controllers)
 	parameter CARD_ACK_TO = 300000,  // 3 ms (memory cards: Sony cards ACK some bytes ~1.7 ms late)
 	parameter SEL_DLY = 2000,    // 20 us
 	parameter BYTE_GAP = 3000,   // 30 us between a memory card's bytes, as a PS1 leaves
-	parameter GAP     = 400000   // 4 ms between controller reads (each port every 8 ms)
+	parameter GAP     = 400000,  // 4 ms between controller reads (each port every 8 ms)
+	parameter PADS    = 1        // read the controllers (0: card frames only, as in a game core's sys_top)
 )
 (
 	input             clk,
 	input             reset,
+	// clk cycles in 64 us: 6400 at 100 MHz (the menu core). A game core's sys_top measures its clock and gives it
+	// here, so the bus keeps a PS1's timing whatever the core's clock (phase 2, super-memcard)
+	input      [15:0] clk_u64,
 
 	// hps_io EXT_BUS
 	input             io_strobe,
@@ -109,14 +114,39 @@ wire [7:0] cs_wdata;
 wire       cs_we;
 reg  [7:0] cs_rdata;
 
+// Timings at this clock: a value of p cycles at 100 MHz is (p / 25) * clk_u64 / 256 (exactly p at 100 MHz). Worked
+// out once per clk_u64 into registers (constants in the menu core).
+function [31:0] at_clk(input [31:0] k, input [15:0] u);   // k = p / 25
+	at_clk = (k * u) >> 8;
+endfunction
+reg [15:0] t_half0, t_half1, t_half2, t_half3, t_gap0, t_gap1, t_gap2, t_gap3, t_sel;
+reg [19:0] t_ack, t_card_ack;
+reg [22:0] t_poll;
+reg [15:0] t_unit;   // a raw frame's ACK-wait unit: 1024 clk at 100 MHz (10.24 us)
+always @(posedge clk) begin
+	t_half0    <= 16'(at_clk((HALF + 1) / 25, clk_u64) - 1);   // 250 kHz
+	t_half1    <= 16'(at_clk(4, clk_u64) - 1);                 // 500 kHz
+	t_half2    <= 16'(at_clk(2, clk_u64) - 1);                 // 1 MHz
+	t_half3    <= 16'(at_clk(1, clk_u64) - 1);                 // 2 MHz
+	t_gap0     <= 16'(at_clk(BYTE_GAP / 25, clk_u64));         // 30 us
+	t_gap1     <= 16'(at_clk(40, clk_u64));                    // 10 us
+	t_gap2     <= 16'(at_clk(16, clk_u64));                    // 4 us
+	t_gap3     <= 16'(at_clk(8, clk_u64));                     // 2 us
+	t_sel      <= 16'(at_clk(SEL_DLY / 25, clk_u64));
+	t_ack      <= 20'(at_clk(ACK_TO / 25, clk_u64));
+	t_card_ack <= 20'(at_clk(CARD_ACK_TO / 25, clk_u64));
+	t_poll     <= 23'(at_clk(GAP / 25, clk_u64));
+	t_unit     <= 16'((32'd41 * clk_u64) >> 8);                // 1024 * clk_u64 / 6400, within 0.1%
+end
+
 // a raw frame's bit clock and gap after each byte (PH_RAW speed); everything else as a PS1 does it
-wire [15:0] cs_half = !cs_raw ? 16'(HALF) : cs_speed == 2'd1 ? 16'd99 : cs_speed == 2'd2 ? 16'd49 : cs_speed == 2'd3 ? 16'd24 : 16'(HALF);
-wire [15:0] cs_gap  = !cs_raw ? 16'(BYTE_GAP) : cs_speed == 2'd1 ? 16'd1000 : cs_speed == 2'd2 ? 16'd400 : cs_speed == 2'd3 ? 16'd200 : 16'(BYTE_GAP);
+wire [15:0] cs_half = !cs_raw ? t_half0 : cs_speed == 2'd1 ? t_half1 : cs_speed == 2'd2 ? t_half2 : cs_speed == 2'd3 ? t_half3 : t_half0;
+wire [15:0] cs_gap  = !cs_raw ? t_gap0 : cs_speed == 2'd1 ? t_gap1 : cs_speed == 2'd2 ? t_gap2 : cs_speed == 2'd3 ? t_gap3 : t_gap0;
 
 card_sector card_sector
 (
 	.clk(clk), .reset(reset | ~ports_on),
-	.half_period(cs_half), .ack_timeout(20'(ACK_TO)), .card_ack_timeout(20'(CARD_ACK_TO)), .sel_delay(16'(SEL_DLY)), .byte_gap(cs_gap),
+	.half_period(cs_half), .ack_timeout(t_ack), .card_ack_timeout(t_card_ack), .sel_delay(t_sel), .byte_gap(cs_gap),
 	.start(cs_start), .raw(cs_raw), .raw_len(cs_rlen), .raw_ack(cs_rack), .raw_count(cs_rcount), .pad(cs_pad), .pcmd(cs_pcmd), .sector(cs_sector), .mode(cs_mode),
 	.busy(cs_busy), .done(cs_done), .result(cs_result), .mismatch(),
 	.hdr0(), .hdr1(), .pad_id(cs_pid), .pad_btn(cs_pbtn), .pad_ana(cs_pana),
@@ -241,7 +271,7 @@ always @(posedge clk) begin
 				cs_start  <= 1;
 				st        <= 3;
 			end
-			else if (!tmr) begin
+			else if (!tmr && PADS) begin
 				cs_raw    <= 0;
 				cs_port   <= pp;
 				cs_pad    <= 1;
@@ -259,7 +289,7 @@ always @(posedge clk) begin
 				p_ana[cs_port] <= cs_pana;
 			end
 			pp  <= ~pp;
-			tmr <= 23'(GAP);
+			tmr <= t_poll;
 			st  <= 0;
 		end
 
@@ -267,12 +297,12 @@ always @(posedge clk) begin
 			card_res  <= cs_result;
 			card_busy <= 0;
 			card_done <= 1;
-			tmr       <= 23'(SEL_DLY);  // a short gap before the next select
+			tmr       <= 23'(t_sel);  // a short gap before the next select
 			st        <= 0;
 		end
 
 		3: if (cs_done) begin
-			tmr <= 23'(SEL_DLY);
+			tmr <= 23'(t_sel);
 			st  <= 0;
 		end
 
@@ -280,7 +310,7 @@ always @(posedge clk) begin
 			raw_count <= (cs_result == 2'd1) ? 8'd0 : cs_rcount;   // no ACK on the first byte: nothing there
 			raw_busy  <= 0;
 			raw_done  <= 1;
-			tmr       <= 23'(SEL_DLY);
+			tmr       <= 23'(t_sel);
 			st        <= 0;
 		end
 
@@ -360,7 +390,7 @@ always @(posedge clk) begin
 			end
 			PH_RAW: if (!raw_busy && !raw_req) begin
 				if (wcnt == 1) begin raw_port <= io_din[8]; raw_len <= (io_din[7:0] == 0) ? 8'd1 : io_din[7:0]; end
-				if (wcnt == 2) begin raw_ack <= {io_din[13:0], 10'd0}; raw_speed <= io_din[15:14]; end   // ack: units of 1024 clk
+				if (wcnt == 2) begin raw_ack <= 24'(io_din[13:0] * t_unit); raw_speed <= io_din[15:14]; end   // ack: units of 10.24 us
 				if (wcnt >= 3 && wcnt <= 8'd2 + 8'(({1'b0, raw_len} + 9'd1) >> 1)) begin
 					h_we   <= 1;
 					h_addr <= 7'(wcnt - 8'd3);

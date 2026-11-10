@@ -20,7 +20,7 @@ module tb;
 
 	phosphor_ext #(.GAP(40000)) dut
 	(
-		.clk(clk), .reset(reset),
+		.clk(clk), .reset(reset), .clk_u64(16'd6400),
 		.io_strobe(io_strobe), .io_enable(io_enable), .io_din(io_din), .io_dout(io_dout), .dout_en(dout_en),
 		.ports_on(ports_on), .show_static(show_static),
 		.sio_sel1_n(sel1_n), .sio_sel2_n(sel2_n), .sio_clk(sclk), .sio_cmd(scmd),

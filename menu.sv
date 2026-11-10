@@ -89,6 +89,7 @@ phosphor_ext phosphor_ext
 (
 	.clk(clk_sys),
 	.reset(RESET),
+	.clk_u64(16'd6400),   // clk_sys is 100 MHz
 	.io_strobe(EXT_BUS[33]),
 	.io_enable(EXT_BUS[34]),
 	.io_din(EXT_BUS[31:16]),
@@ -238,6 +239,7 @@ ddram ddr
 (
 	.*,
 	.reset(RESET),
+	.clk_u64(16'd6400),   // clk_sys is 100 MHz
 	.DDRAM_BURSTCNT(clr_burst),
 	.DDRAM_ADDR(clr_addr),
 	.DDRAM_RD(clr_rd),
