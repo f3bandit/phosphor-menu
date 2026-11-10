@@ -48,7 +48,9 @@ module phosphor_ext
 	parameter SEL_DLY = 2000,    // 20 us
 	parameter BYTE_GAP = 3000,   // 30 us between a memory card's bytes, as a PS1 leaves
 	parameter GAP     = 400000,  // 4 ms between controller reads (each port every 8 ms)
-	parameter PADS    = 1        // read the controllers (0: card frames only, as in a game core's sys_top)
+	parameter PADS    = 1,       // read the controllers
+	parameter RAW_ONLY = 0       // 1: raw card frames only (PH_ID, PH_MODE, PH_RAW): no controllers, sector reads or
+	                             // controller commands, so it's small enough for every game core's sys_top (with PADS 0)
 )
 (
 	input             clk,
@@ -140,14 +142,15 @@ always @(posedge clk) begin
 end
 
 // a raw frame's bit clock and gap after each byte (PH_RAW speed); everything else as a PS1 does it
-wire [15:0] cs_half = !cs_raw ? t_half0 : cs_speed == 2'd1 ? t_half1 : cs_speed == 2'd2 ? t_half2 : cs_speed == 2'd3 ? t_half3 : t_half0;
-wire [15:0] cs_gap  = !cs_raw ? t_gap0 : cs_speed == 2'd1 ? t_gap1 : cs_speed == 2'd2 ? t_gap2 : cs_speed == 2'd3 ? t_gap3 : t_gap0;
+wire        cs_raw_x = RAW_ONLY ? 1'b1 : cs_raw;   // with RAW_ONLY the card side is only ever a raw frame
+wire [15:0] cs_half = !cs_raw_x ? t_half0 : cs_speed == 2'd1 ? t_half1 : cs_speed == 2'd2 ? t_half2 : cs_speed == 2'd3 ? t_half3 : t_half0;
+wire [15:0] cs_gap  = !cs_raw_x ? t_gap0 : cs_speed == 2'd1 ? t_gap1 : cs_speed == 2'd2 ? t_gap2 : cs_speed == 2'd3 ? t_gap3 : t_gap0;
 
 card_sector card_sector
 (
 	.clk(clk), .reset(reset | ~ports_on),
 	.half_period(cs_half), .ack_timeout(t_ack), .card_ack_timeout(t_card_ack), .sel_delay(t_sel), .byte_gap(cs_gap),
-	.start(cs_start), .raw(cs_raw), .raw_len(cs_rlen), .raw_ack(cs_rack), .raw_count(cs_rcount), .pad(cs_pad), .pcmd(cs_pcmd), .sector(cs_sector), .mode(cs_mode),
+	.start(cs_start), .raw(cs_raw_x), .raw_len(cs_rlen), .raw_ack(cs_rack), .raw_count(cs_rcount), .pad(RAW_ONLY ? 1'b0 : cs_pad), .pcmd(cs_pcmd), .sector(cs_sector), .mode(cs_mode),
 	.busy(cs_busy), .done(cs_done), .result(cs_result), .mismatch(),
 	.hdr0(), .hdr1(), .pad_id(cs_pid), .pad_btn(cs_pbtn), .pad_ana(cs_pana),
 	.mem_addr(cs_addr), .mem_wdata(cs_wdata), .mem_we(cs_we), .mem_rdata(cs_rdata),
@@ -169,7 +172,7 @@ reg [15:0] h_data;
 reg  [6:0] h_rd;
 reg [15:0] h_q;
 // a sector op addresses {sector, byte}: only its byte 0..127 picks the buffer word; a raw frame 0..255
-wire [6:0] cs_word = cs_raw ? cs_addr[7:1] : {1'b0, cs_addr[6:1]};
+wire [6:0] cs_word = cs_raw_x ? cs_addr[7:1] : {1'b0, cs_addr[6:1]};
 
 always @(posedge clk) begin
 	if (cs_we) begin
@@ -375,13 +378,13 @@ always @(posedge clk) begin
 				if (wcnt == 1) begin card_port <= io_din[8]; card_wr <= io_din[0]; end
 				if (wcnt == 2) begin
 					card_sec <= io_din[9:0];
-					if (!card_wr) set_card <= 1;
+					if (!card_wr) set_card <= !RAW_ONLY;
 				end
 				if (card_wr && wcnt >= 3 && wcnt <= 66) begin
 					h_we   <= 1;
 					h_addr <= 7'(wcnt - 8'd3);
 					h_data <= io_din;
-					if (wcnt == 66) set_card <= 1;
+					if (wcnt == 66) set_card <= !RAW_ONLY;
 				end
 			end
 			PH_CARD_STATUS: if (wcnt <= 64) begin
@@ -406,7 +409,7 @@ always @(posedge clk) begin
 			PH_PAD_CMD: if (wcnt == 1 && !pcmd_req) begin
 				pcmd_port <= io_din[8];
 				pcmd_cmd  <= io_din[1:0];
-				set_pcmd  <= 1;
+				set_pcmd  <= !RAW_ONLY;
 			end
 			default: ;
 		endcase
