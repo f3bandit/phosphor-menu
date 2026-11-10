@@ -127,24 +127,33 @@ reg [22:0] t_poll;
 reg [15:0] t_unit;   // a raw frame's ACK-wait unit: 1024 clk at 100 MHz (10.24 us)
 always @(posedge clk) begin
 	t_half0    <= 16'(at_clk((HALF + 1) / 25, clk_u64) - 1);   // 250 kHz
-	t_half1    <= 16'(at_clk(4, clk_u64) - 1);                 // 500 kHz
-	t_half2    <= 16'(at_clk(2, clk_u64) - 1);                 // 1 MHz
-	t_half3    <= 16'(at_clk(1, clk_u64) - 1);                 // 2 MHz
+	t_half1    <= RAW_ONLY ? 16'd0 : 16'(at_clk(4, clk_u64) - 1);                 // 500 kHz
+	t_half2    <= RAW_ONLY ? 16'd0 : 16'(at_clk(2, clk_u64) - 1);                 // 1 MHz
+	t_half3    <= RAW_ONLY ? 16'd0 : 16'(at_clk(1, clk_u64) - 1);                 // 2 MHz
 	t_gap0     <= 16'(at_clk(BYTE_GAP / 25, clk_u64));         // 30 us
-	t_gap1     <= 16'(at_clk(40, clk_u64));                    // 10 us
-	t_gap2     <= 16'(at_clk(16, clk_u64));                    // 4 us
-	t_gap3     <= 16'(at_clk(8, clk_u64));                     // 2 us
+	t_gap1     <= RAW_ONLY ? 16'd0 : 16'(at_clk(40, clk_u64));                    // 10 us
+	t_gap2     <= RAW_ONLY ? 16'd0 : 16'(at_clk(16, clk_u64));                    // 4 us
+	t_gap3     <= RAW_ONLY ? 16'd0 : 16'(at_clk(8, clk_u64));                     // 2 us
 	t_sel      <= 16'(at_clk(SEL_DLY / 25, clk_u64));
 	t_ack      <= 20'(at_clk(ACK_TO / 25, clk_u64));
-	t_card_ack <= 20'(at_clk(CARD_ACK_TO / 25, clk_u64));
-	t_poll     <= 23'(at_clk(GAP / 25, clk_u64));
+	t_card_ack <= RAW_ONLY ? 20'd0 : 20'(at_clk(CARD_ACK_TO / 25, clk_u64));   // raw frames wait as asked
+	t_poll     <= PADS ? 23'(at_clk(GAP / 25, clk_u64)) : 23'd0;
 	t_unit     <= 16'((32'd41 * clk_u64) >> 8);                // 1024 * clk_u64 / 6400, within 0.1%
 end
 
 // a raw frame's bit clock and gap after each byte (PH_RAW speed); everything else as a PS1 does it
 wire        cs_raw_x = RAW_ONLY ? 1'b1 : cs_raw;   // with RAW_ONLY the card side is only ever a raw frame
-wire [15:0] cs_half = !cs_raw_x ? t_half0 : cs_speed == 2'd1 ? t_half1 : cs_speed == 2'd2 ? t_half2 : cs_speed == 2'd3 ? t_half3 : t_half0;
-wire [15:0] cs_gap  = !cs_raw_x ? t_gap0 : cs_speed == 2'd1 ? t_gap1 : cs_speed == 2'd2 ? t_gap2 : cs_speed == 2'd3 ? t_gap3 : t_gap0;
+// RAW_ONLY works the faster speeds out from the 250 kHz half bit (2 us) with shifts (within a clock cycle), so a game
+// core's sys_top keeps fewer registers
+wire [15:0] h0 = t_half0 + 1'd1;   // clk cycles in 2 us
+wire [15:0] r_half1 = RAW_ONLY ? (t_half0 >> 1) : t_half1;
+wire [15:0] r_half2 = RAW_ONLY ? (t_half0 >> 2) : t_half2;
+wire [15:0] r_half3 = RAW_ONLY ? (t_half0 >> 3) : t_half3;
+wire [15:0] r_gap1  = RAW_ONLY ? 16'((h0 << 2) + h0) : t_gap1;   // 10 us
+wire [15:0] r_gap2  = RAW_ONLY ? 16'(h0 << 1) : t_gap2;          // 4 us
+wire [15:0] r_gap3  = RAW_ONLY ? h0 : t_gap3;                    // 2 us
+wire [15:0] cs_half = !cs_raw_x ? t_half0 : cs_speed == 2'd1 ? r_half1 : cs_speed == 2'd2 ? r_half2 : cs_speed == 2'd3 ? r_half3 : t_half0;
+wire [15:0] cs_gap  = !cs_raw_x ? t_gap0 : cs_speed == 2'd1 ? r_gap1 : cs_speed == 2'd2 ? r_gap2 : cs_speed == 2'd3 ? r_gap3 : t_gap0;
 
 card_sector card_sector
 (
@@ -285,8 +294,8 @@ always @(posedge clk) begin
 		end
 
 		1: if (cs_done) begin
-			p_ok[cs_port] <= (cs_result == R_OK);
-			if (cs_result == R_OK) begin
+			p_ok[cs_port] <= PADS && (cs_result == R_OK);   // (without PADS never here: no controller state kept)
+			if (PADS && cs_result == R_OK) begin
 				p_id[cs_port]  <= cs_pid;
 				p_btn[cs_port] <= cs_pbtn;
 				p_ana[cs_port] <= cs_pana;
