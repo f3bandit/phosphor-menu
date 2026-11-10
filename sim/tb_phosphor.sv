@@ -73,22 +73,27 @@ module tb;
 	reg  [7:0] fr[0:255];
 	reg [15:0] rst;
 	reg [15:0] rw16;
+	reg [1:0] raw_spd = 0;   // PH_RAW speed (version 3)
+	time      t_raw;         // how long the last raw frame took (to its done, polled every 200 us)
 	task automatic raw_frame(input integer port, input integer len, input integer ack10us);
 		integer k, tries;
 		begin
 			begin_cmd(16'h87);
 			w({7'd0, port[0], len[7:0]}, r);
-			w(16'((ack10us * 1000) / 1024), r);   // 10 us units -> 1024-clk units
+			w({raw_spd, 14'((ack10us * 1000) / 1024)}, r);   // speed, 10 us units -> 1024-clk units
+			t_raw = $time;
 			for (k = 0; k < len; k = k + 2) w({(k + 1 < len) ? fr[k + 1] : 8'h00, fr[k]}, r);
 			end_cmd;
 			tries = 0;
 			do begin #(200_000); begin_cmd(16'h88); rst = r; end_cmd; tries = tries + 1; end while (rst[15] && tries < 2000);
+			t_raw = $time - t_raw;
 			begin_cmd(16'h88); rst = r;
 			for (k = 0; k < len; k = k + 2) begin w(0, rw16); fr[k] = rw16[7:0]; if (k + 1 < len) fr[k + 1] = rw16[15:8]; end
 			end_cmd;
 		end
 	endtask
 
+	integer sp;
 	initial begin
 		// port 1: analog controller and a card; port 2: digital controller, no card
 		p1.present = 1; p1.pad_present = 1; p1.pad_analog = 1;
@@ -105,7 +110,7 @@ module tb;
 
 		begin_cmd(16'h80); id = r; w(0, ver); w(0, md); end_cmd;
 		check("PH_ID", id, 16'h5048);
-		check("version", ver, 16'd2);
+		check("version", ver, 16'd3);
 		check("mode off", md, 16'd0);
 
 		// a command it doesn't own: no answer from the extension
@@ -210,6 +215,21 @@ module tb;
 		for (i = 0; i < 128; i = i + 1) if (fr[10 + i] !== p1.mem[11*128 + i]) n = n + 1;
 		check("raw: the sector's data", n, 0);
 		check("raw: end byte 47", fr[139], 8'h47);
+		$display("     a 140-byte frame at speed 0 (250 kHz, 30 us gaps): %0d us", t_raw / 1000);
+
+		// the same at the faster speeds (version 3): the card is ACK-paced, so only the clock and the gaps change
+		for (sp = 1; sp < 4; sp = sp + 1) begin
+			for (i = 0; i < 140; i = i + 1) fr[i] = 8'h00;
+			fr[0] = 8'h81; fr[1] = 8'h52; fr[4] = 8'h00; fr[5] = 8'd11;
+			raw_spd = sp[1:0];
+			raw_frame(0, 140, 500);
+			n = 0;
+			for (i = 0; i < 128; i = i + 1) if (fr[10 + i] !== p1.mem[11*128 + i]) n = n + 1;
+			check("raw fast: whole frame", rst[7:0] | (n << 8), 140);
+			check("raw fast: end byte 47", fr[139], 8'h47);
+			$display("     the same frame at speed %0d: %0d us", sp, t_raw / 1000);
+		end
+		raw_spd = 0;
 
 		// Super MemCard's Hello to a Sony-style card: it doesn't ACK the command byte, so the frame stops
 		for (i = 0; i < 23; i = i + 1) fr[i] = 8'h00;

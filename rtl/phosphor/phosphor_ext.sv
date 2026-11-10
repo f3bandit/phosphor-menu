@@ -21,8 +21,11 @@
 //                        the operation starts after the sector (read) or the last data word (write)
 //   84 PH_CARD_STATUS  reply: {busy, done, 12'0, result}, then 64 data words (after a read)
 //                        result: 0 OK, 1 no card, 2 bad reply / refused, 3 sector out of range
-//   87 PH_RAW          write: {7'0, port 2, len (1..255)}, ack wait in units of 1024 clk (10.24 us at 100 MHz;
-//                        bits 13:0, up to ~168 ms),
+//   87 PH_RAW          write: {7'0, port 2, len (1..255)}, {speed, ack wait}: ack wait in units of 1024 clk (10.24 us
+//                        at 100 MHz; bits 13:0, up to ~168 ms); speed (bits 15:14), version 3: 0 as a PS1 (250 kHz,
+//                        30 us after each byte), 1 500 kHz / 10 us, 2 1 MHz / 4 us, 3 2 MHz / 2 us. Each byte still
+//                        waits for the card's ACK, so a card that needs longer gets it; only for cards that said
+//                        they can (Super MemCard's Hello, sent at speed 0),
 //                        then the frame's bytes as (len + 1) / 2 words (byte 2n low, 2n+1 high); the frame
 //                        starts after the last data word: one select, the bytes out in turn, each reply byte
 //                        kept in its place, stopping after the first byte the card doesn't ACK
@@ -67,7 +70,7 @@ module phosphor_ext
 	input             sio_ack
 );
 
-localparam VERSION = 16'd2;   // 2: PH_RAW, PH_RAW_STATUS
+localparam VERSION = 16'd3;   // 2: PH_RAW, PH_RAW_STATUS; 3: PH_RAW speed
 localparam PH_ID = 8'h80, PH_MODE = 8'h81, PH_PADS = 8'h82, PH_CARD = 8'h83, PH_CARD_STATUS = 8'h84, PH_PAD_CMD = 8'h85, PH_LOOK = 8'h86,
            PH_RAW = 8'h87, PH_RAW_STATUS = 8'h88;
 localparam R_OK = 2'd0;
@@ -92,6 +95,7 @@ end
 reg        cs_start, cs_pad, cs_port, cs_raw;
 reg  [7:0] cs_rlen;
 reg [23:0] cs_rack;
+reg  [1:0] cs_speed;   // a raw frame's speed (PH_RAW)
 wire [7:0] cs_rcount;
 reg  [1:0] cs_pcmd, cs_mode;
 reg  [9:0] cs_sector;
@@ -105,10 +109,14 @@ wire [7:0] cs_wdata;
 wire       cs_we;
 reg  [7:0] cs_rdata;
 
+// a raw frame's bit clock and gap after each byte (PH_RAW speed); everything else as a PS1 does it
+wire [15:0] cs_half = !cs_raw ? 16'(HALF) : cs_speed == 2'd1 ? 16'd99 : cs_speed == 2'd2 ? 16'd49 : cs_speed == 2'd3 ? 16'd24 : 16'(HALF);
+wire [15:0] cs_gap  = !cs_raw ? 16'(BYTE_GAP) : cs_speed == 2'd1 ? 16'd1000 : cs_speed == 2'd2 ? 16'd400 : cs_speed == 2'd3 ? 16'd200 : 16'(BYTE_GAP);
+
 card_sector card_sector
 (
 	.clk(clk), .reset(reset | ~ports_on),
-	.half_period(16'(HALF)), .ack_timeout(20'(ACK_TO)), .card_ack_timeout(20'(CARD_ACK_TO)), .sel_delay(16'(SEL_DLY)), .byte_gap(16'(BYTE_GAP)),
+	.half_period(cs_half), .ack_timeout(20'(ACK_TO)), .card_ack_timeout(20'(CARD_ACK_TO)), .sel_delay(16'(SEL_DLY)), .byte_gap(cs_gap),
 	.start(cs_start), .raw(cs_raw), .raw_len(cs_rlen), .raw_ack(cs_rack), .raw_count(cs_rcount), .pad(cs_pad), .pcmd(cs_pcmd), .sector(cs_sector), .mode(cs_mode),
 	.busy(cs_busy), .done(cs_done), .result(cs_result), .mismatch(),
 	.hdr0(), .hdr1(), .pad_id(cs_pid), .pad_btn(cs_pbtn), .pad_ana(cs_pana),
@@ -162,6 +170,7 @@ reg  [1:0] pcmd_cmd;
 reg        raw_req, raw_port, raw_busy, raw_done;
 reg  [7:0] raw_len, raw_count;
 reg [23:0] raw_ack;
+reg  [1:0] raw_speed;
 
 reg  [2:0] st;           // 0 idle, 1 controller read, 2 card operation, 3 controller command, 4 raw frame
 reg [22:0] tmr;
@@ -208,6 +217,7 @@ always @(posedge clk) begin
 				cs_raw    <= 1;
 				cs_rlen   <= raw_len;
 				cs_rack   <= raw_ack;
+				cs_speed  <= raw_speed;
 				cs_start  <= 1;
 				st        <= 4;
 			end
@@ -350,7 +360,7 @@ always @(posedge clk) begin
 			end
 			PH_RAW: if (!raw_busy && !raw_req) begin
 				if (wcnt == 1) begin raw_port <= io_din[8]; raw_len <= (io_din[7:0] == 0) ? 8'd1 : io_din[7:0]; end
-				if (wcnt == 2) raw_ack <= {io_din[13:0], 10'd0};   // units of 1024 clk (no multiplier)
+				if (wcnt == 2) begin raw_ack <= {io_din[13:0], 10'd0}; raw_speed <= io_din[15:14]; end   // ack: units of 1024 clk
 				if (wcnt >= 3 && wcnt <= 8'd2 + 8'(({1'b0, raw_len} + 9'd1) >> 1)) begin
 					h_we   <= 1;
 					h_addr <= 7'(wcnt - 8'd3);
